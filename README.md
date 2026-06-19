@@ -5,29 +5,29 @@
 
 # 🔭 DriftScope
 
-> **A full-stack LLM quality monitoring platform built from scratch.**  
-> Detect silent model regressions, run statistically-grounded drift detection, and catch provider-side model swaps before your users do.
+> **A full-stack LLM quality monitoring platform I'm building from scratch.**  
+> I'm using it to detect silent model regressions, run statistically-grounded drift detection, and catch provider-side model swaps before users do.
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+[![Gemini](https://img.shields.io/badge/LLM-Gemini%202.0%20Flash-4285F4?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev)
 
 ---
 
 ## 📖 Table of Contents
 
 - [Why DriftScope](#-why-driftscope)
-- [What You're Building](#-what-youre-building)
+- [What I'm Building](#-what-im-building)
 - [Architecture Overview](#-architecture-overview)
 - [Tech Stack](#-tech-stack)
+- [Free LLM Choice](#-free-llm-choice)
 - [Phase Implementation Plan](#-phase-implementation-plan)
-  - [Phase 1 — Foundation (Weeks 1–2)](#phase-1--foundation-weeks-12)
-  - [Phase 2 — Intelligence Layer (Weeks 3–4)](#phase-2--intelligence-layer-weeks-34)
-  - [Phase 3 — Drift Detection & DevOps (Weeks 5–6)](#phase-3--drift-detection--devops-weeks-56)
-  - [Phase 4 — Provider-Change Canary & Empirical Study (Weeks 7–8)](#phase-4--provider-change-canary--empirical-study-weeks-78)
-- [Competitive Landscape](#-competitive-landscape)
+  - [Phase 1 — Foundation](#phase-1--foundation)
+  - [Phase 2 — Intelligence Layer](#phase-2--intelligence-layer)
+  - [Phase 3 — Drift Detection & DevOps](#phase-3--drift-detection--devops)
+  - [Phase 4 — Provider-Change Canary & Empirical Study](#phase-4--provider-change-canary--empirical-study)
 - [Research Base](#-research-base)
 - [Quick-Start Checklist](#-quick-start-checklist)
 - [Getting Started](#-getting-started)
@@ -41,11 +41,11 @@ The underlying pain is real even if the tooling space is crowded. Enterprises sp
 > *"There is no guarantee that the system named GPT-4o at 16:18 will be the same system at 18:16."*  
 > — Murphy & Underwood, ACM Queue 2025
 
-The specific gap DriftScope addresses: **no existing open-source tool detects when a provider like OpenAI or Anthropic silently updates their model** — your application's behaviour changes with no API version bump, no changelog, no warning.
+The specific gap I'm addressing: **no existing open-source tool detects when a provider silently updates their model** — your application's behaviour changes with no API version bump, no changelog, no warning. I'm building DriftScope to solve exactly this.
 
 ---
 
-## 🏗️ What You're Building
+## 🏗️ What I'm Building
 
 DriftScope is a **five-module system**, each independently useful, combined into one platform:
 
@@ -78,11 +78,10 @@ DriftScope is a **five-module system**, each independently useful, combined into
 │  │  · eval_     │                                                   │
 │  │    results   │    ┌──────────────────┐    ┌───────────────────┐ │
 │  │  · centroid_ │◀───│  Nightly Canary  │    │  GitHub Actions   │ │
-│  │    history   │    │  · OpenAI        │    │  CI/CD Gate       │ │
-│  └──────────────┘    │  · Anthropic     │    │  · PR Comments    │ │
-│                      │  · Ollama (local)│    │  · Merge Blocking │ │
-│                      └──────────────────┘    └───────────────────┘ │
-│                                                                     │
+│  │    history   │    │  · Gemini Flash  │    │  CI/CD Gate       │ │
+│  └──────────────┘    │  · Ollama (local)│    │  · PR Comments    │ │
+│                      └──────────────────┘    │  · Merge Blocking │ │
+│                                              └───────────────────┘ │
 │  ┌──────────────┐    ┌──────────────────┐                          │
 │  │  Prometheus  │───▶│    Grafana       │                          │
 │  │  /metrics    │    │    Dashboard     │                          │
@@ -99,7 +98,7 @@ CREATE TABLE golden_cases (
     prompt         TEXT NOT NULL,
     expected_topics TEXT[],       -- themes the response should cover
     safety_rules   TEXT[],        -- natural-language rules for LLM judge
-    version_tag    VARCHAR(50),   -- e.g. "v1.2-gpt4o"
+    version_tag    VARCHAR(50),   -- e.g. "v1.2-gemini-flash"
     domain         VARCHAR(50),   -- e.g. "medical", "legal", "finance"
     created_at     TIMESTAMPTZ DEFAULT now()
 );
@@ -113,7 +112,7 @@ CREATE TABLE eval_results (
     cosine_score    FLOAT,
     judge_score     FLOAT,
     composite_score FLOAT,
-    provider        VARCHAR(50),  -- "openai", "anthropic", "local"
+    provider        VARCHAR(50),  -- "gemini", "ollama", "local"
     evaluated_at    TIMESTAMPTZ DEFAULT now()
 );
 
@@ -143,7 +142,42 @@ CREATE TABLE centroid_history (
 | CI/CD | GitHub Actions |
 | Observability | Prometheus + Grafana |
 | Infrastructure | Docker Compose, Redis |
-| Local LLM | Ollama |
+| LLM (Judge + Canary) | **Google Gemini 2.0 Flash** (free tier) |
+
+---
+
+## 🤖 Free LLM Choice
+
+I'm using **Google Gemini 2.0 Flash** as the LLM for both the judge and the canary runs. Here's why it's the best free option for this project:
+
+| Criterion | Gemini 2.0 Flash |
+|-----------|-----------------|
+| **Cost** | Free tier via [Google AI Studio](https://aistudio.google.com) — 15 RPM, 1M tokens/day |
+| **Structured output** | Native JSON mode — critical for the LLM-as-judge `{pass, reason}` schema |
+| **Speed** | Sub-second latency — fast enough for nightly canary runs |
+| **Context window** | 1M tokens — handles long responses without truncation |
+| **Python SDK** | `google-generativeai` — simple, well-documented |
+| **Quality** | Matches or beats GPT-3.5 on evaluation tasks at zero cost |
+
+```bash
+pip install google-generativeai
+```
+
+```python
+import google.generativeai as genai
+
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+model = genai.GenerativeModel("gemini-2.0-flash")
+
+response = model.generate_content(
+    prompt,
+    generation_config=genai.GenerationConfig(
+        response_mime_type="application/json"
+    )
+)
+```
+
+Get a free API key at [aistudio.google.com](https://aistudio.google.com).
 
 ---
 
@@ -151,42 +185,41 @@ CREATE TABLE centroid_history (
 
 ---
 
-### Phase 1 — Foundation (Weeks 1–2)
+### Phase 1 — Foundation
 
-**Goal:** Stand up the core data layer, embedding utilities, and REST API skeleton. By the end of week 2 you should be able to store golden test cases and run a basic cosine-similarity eval against a live model.
+**My goal:** Stand up the core data layer, embedding utilities, and REST API skeleton. By the end of this phase I should be able to store golden test cases and run a basic cosine-similarity eval against a live model.
 
 #### 1.1 Environment Setup
 
 ```bash
 pip install sentence-transformers fastapi uvicorn psycopg2-binary alembic \
-            scipy numpy pytest httpx python-dotenv openai anthropic
+            scipy numpy pytest httpx python-dotenv google-generativeai
 ```
 
-Create a `.env.example`:
+My `.env.example`:
 ```
 DATABASE_URL=postgresql://user:pass@localhost:5432/driftscope
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=AIza...
 ```
 
 #### 1.2 PostgreSQL Schema + Alembic Migration
 
-- Install Alembic and initialise: `alembic init alembic/`
+- I'll initialise Alembic: `alembic init alembic/`
 - Create the `golden_cases` and `eval_results` tables (see schema above)
-- Run initial migration: `alembic upgrade head`
-- Write a seed script that inserts 20+ golden test cases for your chosen domain (e.g. medical Q&A, legal summarisation, customer support)
+- Run the initial migration: `alembic upgrade head`
+- Write a seed script that inserts 20+ golden test cases for my chosen domain (e.g. medical Q&A, legal summarisation, customer support)
 
-**Key design decision:** Store `expected_topics` (what the model should cover) and `safety_rules` (natural-language rules for the LLM judge), **not** verbatim expected strings. This makes evals robust to non-determinism.
+**Key design decision:** I'm storing `expected_topics` (what the model should cover) and `safety_rules` (natural-language rules for the LLM judge), **not** verbatim expected strings. This makes evals robust to the non-deterministic nature of LLM outputs.
 
 #### 1.3 Embedding Utilities
 
-Implement two core utility functions with full pytest unit tests:
+I'll implement two core utility functions with full pytest unit tests:
 
 ```python
 from sentence_transformers import SentenceTransformer
 import numpy as np
 
-model = SentenceTransformer('all-MiniLM-L6-v2')  # free, runs locally, fast
+model = SentenceTransformer('all-MiniLM-L6-v2')  # free, runs locally, ~5ms/call
 
 def embed(text: str) -> np.ndarray:
     """Return a unit-normalised embedding vector."""
@@ -200,7 +233,7 @@ def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
 > **Why `all-MiniLM-L6-v2`?**  
 > 384-dimensional, 22M params, runs in ~5ms on CPU. arXiv:2602.11165 shows models achieve >99% cosine similarity with gold references despite <8% BLEU-1 overlap — embeddings capture *meaning*, lexical metrics don't.
 
-**Tests to write:**
+**Tests I'll write:**
 - `test_embed_returns_unit_vector()`
 - `test_cosine_sim_identical_texts()`
 - `test_cosine_sim_orthogonal_texts()`
@@ -210,7 +243,7 @@ def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
 
 ```python
 class LLMClient:
-    def __init__(self, provider: str):  # "openai" | "anthropic" | "local"
+    def __init__(self, provider: str):  # "gemini" | "local"
         ...
     def complete(self, prompt: str, schema: dict | None = None) -> dict:
         ...
@@ -220,8 +253,7 @@ def get_client(provider: str) -> LLMClient:
     ...
 ```
 
-- Wire OpenAI (`gpt-4o`) and Anthropic (`claude-3-5-sonnet`) behind the same interface
-- Support optional structured output via `schema` param (used by LLM-as-judge in Phase 2)
+I'm wiring **Gemini 2.0 Flash** as the primary provider, with **Ollama** (local) as the fallback. The factory pattern means I can swap models without touching any business logic.
 
 #### 1.5 FastAPI Endpoints
 
@@ -237,21 +269,26 @@ GET  /cases/{case_id}/results → history of eval results for a case
 - [ ] `pip install` command works in a fresh virtualenv
 - [ ] `alembic upgrade head` creates both tables cleanly
 - [ ] `POST /cases` stores a case and returns its UUID
-- [ ] `POST /cases/{id}/run` calls the LLM, embeds the response, stores cosine score
+- [ ] `POST /cases/{id}/run` calls Gemini, embeds the response, stores cosine score
 - [ ] Pytest suite passes for embedding utilities
 
 ---
 
-### Phase 2 — Intelligence Layer (Weeks 3–4)
+### Phase 2 — Intelligence Layer
 
-**Goal:** Add the LLM-as-judge, cost guard, composite scoring, and aggregated reporting. By end of week 4 you should have an 80%+ covered integration test suite with mocked LLM responses.
+**My goal:** Add the LLM-as-judge, cost guard, composite scoring, and aggregated reporting. By end of this phase I want an 80%+ covered integration test suite with mocked LLM responses.
 
-#### 2.1 LLM-as-Judge
+#### 2.1 LLM-as-Judge (Gemini 2.0 Flash)
 
-Implement a structured rubric prompt that returns `{pass: bool, reason: str}`:
+I'll implement a structured rubric prompt that returns `{pass: bool, reason: str}`:
 
 ```python
-def judge_response(response: str, rule: str, client: LLMClient) -> dict:
+import google.generativeai as genai
+import json
+
+model = genai.GenerativeModel("gemini-2.0-flash")
+
+def judge_response(response: str, rule: str) -> dict:
     prompt = f"""You are a strict evaluator. Answer in JSON only.
 
 Rule: {rule}
@@ -260,17 +297,21 @@ Response to evaluate: {response}
 Does the response satisfy the rule?
 Respond with: {{"pass": true/false, "reason": "one sentence explanation"}}"""
 
-    return client.complete(prompt, schema={"pass": bool, "reason": str})
+    result = model.generate_content(
+        prompt,
+        generation_config=genai.GenerationConfig(response_mime_type="application/json")
+    )
+    return json.loads(result.text)
 ```
 
-**Known biases to mitigate (from arXiv:2411.15594):**
-- **Position bias:** If comparing multiple responses, randomise their order
-- **Verbosity bias:** Longer responses score higher regardless of quality — keep rubrics length-agnostic
-- **Self-enhancement bias:** Don't use the same model as judge and evaluee
+**Known biases I'll mitigate (from arXiv:2411.15594):**
+- **Position bias:** Randomise rubric order when comparing multiple responses
+- **Verbosity bias:** Keep rubrics length-agnostic — longer responses shouldn't automatically score higher
+- **Self-enhancement bias:** Use the same model class for both judge and evaluee only when unavoidable
 
 #### 2.2 Cost Guard
 
-The LLM judge is expensive. Only invoke it when:
+Even with the free tier, I want to be deliberate about judge invocations. I'll only call the judge when:
 1. `cosine_score < 0.85` (borderline semantic match), **OR**
 2. The case has `"safety"` in its tags
 
@@ -279,7 +320,7 @@ def should_invoke_judge(cosine_score: float, case_tags: list[str]) -> bool:
     return cosine_score < 0.85 or "safety" in case_tags
 ```
 
-This typically limits judge invocations to **<15% of evals**, keeping costs manageable at scale.
+This typically limits judge invocations to **<15% of evals**, keeping rate limits comfortable even on the free tier.
 
 #### 2.3 Composite Weighted Score
 
@@ -300,7 +341,7 @@ def composite_score(
     return (w1 * cosine) + (w2 * judge)
 ```
 
-Store `cosine_score`, `judge_score`, and `composite_score` separately in `eval_results` for full auditability.
+I'm storing `cosine_score`, `judge_score`, and `composite_score` separately in `eval_results` for full auditability.
 
 #### 2.4 Reporting Endpoint
 
@@ -311,7 +352,7 @@ GET /reports/{model_version}
 Returns aggregated stats for a model version:
 ```json
 {
-  "model_version": "v1.2-gpt4o",
+  "model_version": "v1.2-gemini-flash",
   "total_runs": 342,
   "avg_composite_score": 0.871,
   "avg_cosine_score": 0.903,
@@ -324,7 +365,7 @@ Returns aggregated stats for a model version:
 
 #### 2.5 Integration Tests (80%+ Coverage Target)
 
-Use `pytest` + `httpx.AsyncClient` + `unittest.mock` to mock LLM responses:
+I'll use `pytest` + `httpx.AsyncClient` + `unittest.mock` to mock LLM responses so tests run fast and free:
 
 ```python
 @pytest.mark.asyncio
@@ -335,7 +376,7 @@ async def test_run_eval_stores_composite_score(mock_llm_client, async_client, db
 
     # Act
     resp = await async_client.post(f"/cases/{case.case_id}/run",
-                                   json={"provider": "openai", "model_version": "v1.2-gpt4o"})
+                                   json={"provider": "gemini", "model_version": "v1.2-gemini-flash"})
 
     # Assert
     assert resp.status_code == 200
@@ -353,13 +394,13 @@ async def test_run_eval_stores_composite_score(mock_llm_client, async_client, db
 
 ---
 
-### Phase 3 — Drift Detection & DevOps (Weeks 5–6)
+### Phase 3 — Drift Detection & DevOps
 
-**Goal:** Add statistically-grounded drift detection, wire it into a GitHub Actions CI gate, and launch the full observability stack. By end of week 6, a Docker Compose `up` spins the entire platform locally.
+**My goal:** Add statistically-grounded drift detection, wire it into a GitHub Actions CI gate, and launch the full observability stack. By the end of this phase, a single `docker compose up` should spin the entire platform locally.
 
 #### 3.1 Mann-Whitney Drift Detector
 
-The **novel core** of DriftScope. Rather than comparing single scores, compare *distributions*.
+This is the **novel core** of DriftScope. Rather than comparing single scores, I'm comparing *distributions* — this is what makes the drift detection defensible and not just vibes-based thresholds.
 
 ```python
 from scipy.stats import mannwhitneyu
@@ -391,7 +432,7 @@ def detect_drift(db_session, model_version: str) -> dict:
 ```
 
 **Why Mann-Whitney U, not a t-test?**  
-Cosine score distributions are rarely Gaussian. Mann-Whitney U is non-parametric — no normality assumption. Cohen's d adds *practical* significance on top of *statistical* significance, preventing false alerts on tiny real-world differences.
+Cosine score distributions are rarely Gaussian. Mann-Whitney U is non-parametric — no normality assumption required. Cohen's d adds *practical* significance on top of *statistical* significance, preventing false alerts from tiny real-world differences that happen to be statistically significant.
 
 **API endpoint:**
 ```
@@ -400,7 +441,7 @@ GET /drift/{model_version}
 Response:
 ```json
 {
-  "model_version": "v1.2-gpt4o",
+  "model_version": "v1.2-gemini-flash",
   "drift_detected": true,
   "p_value": 0.0231,
   "effect_size": 0.412,
@@ -411,7 +452,7 @@ Response:
 
 #### 3.2 GitHub Actions CI/CD Gate
 
-Create `.github/workflows/eval.yml`:
+I'll create `.github/workflows/eval.yml`:
 
 ```yaml
 name: DriftScope Eval Gate
@@ -454,7 +495,7 @@ jobs:
           python scripts/run_eval.py --output eval_report.json
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/driftscope_test
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Post PR comment
         uses: actions/github-script@v7
@@ -506,7 +547,7 @@ def metrics():
 
 #### 3.4 Docker Compose Stack
 
-`docker-compose.yml` — single command to run the entire platform:
+One command runs the entire platform locally:
 
 ```yaml
 version: "3.9"
@@ -545,7 +586,6 @@ volumes:
   grafana-data:
 ```
 
-Anyone should be able to run the full stack with:
 ```bash
 docker compose up --build
 ```
@@ -562,13 +602,13 @@ docker compose up --build
 
 ---
 
-### Phase 4 — Provider-Change Canary & Empirical Study (Weeks 7–8)
+### Phase 4 — Provider-Change Canary & Empirical Study
 
-**Goal:** Build the second novel feature — a nightly canary that uses SBERT centroid tracking to detect when OpenAI or Anthropic silently swaps their underlying model. Run it for 30 days and publish your findings.
+**My goal:** Build the second novel feature — a nightly canary that uses SBERT centroid tracking to detect when a provider silently swaps their underlying model. I'll run it against Gemini and a local Ollama model to observe real drift over time.
 
 #### 4.1 Embedding Centroid Tracking
 
-The technique is taken from Zanbaghi et al. (arXiv:2511.15992), which uses Sentence-BERT centroid tracking to detect backdoored LLMs with **92.5% accuracy**. DriftScope applies it to provider-update detection.
+I'm borrowing the technique from Zanbaghi et al. (arXiv:2511.15992), which uses Sentence-BERT centroid tracking to detect backdoored LLMs with **92.5% accuracy**, and applying it to provider-update detection.
 
 ```python
 import numpy as np
@@ -594,7 +634,7 @@ async def run_canary(provider: str, golden_case_ids: list[str], db_session) -> d
     """
     Run a fixed golden set against the live provider API.
     Compute today's centroid and compare to the 7-day rolling centroid.
-    Alert if drift > 0.05.
+    Send an email alert if drift > 0.05.
     """
     responses = [await llm_client.complete(get_prompt(cid)) for cid in golden_case_ids]
     current_centroid = compute_centroid(responses)
@@ -605,7 +645,7 @@ async def run_canary(provider: str, golden_case_ids: list[str], db_session) -> d
     store_centroid(db_session, provider, current_centroid, drift)
 
     if drift > 0.05:
-        await send_alert(provider, drift)   # Slack webhook or email
+        await send_email_alert(provider, drift)
 
     return {"provider": provider, "drift_score": round(drift, 4), "alert_sent": drift > 0.05}
 ```
@@ -623,7 +663,7 @@ CREATE TABLE centroid_history (
 
 #### 4.3 GitHub Actions Cron Schedule
 
-Add to `.github/workflows/canary.yml`:
+I'll create `.github/workflows/canary.yml`:
 
 ```yaml
 name: DriftScope Nightly Canary
@@ -639,88 +679,87 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run canary
-        run: python scripts/run_canary.py --providers openai anthropic
+        run: python scripts/run_canary.py --providers gemini ollama
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
 ```
 
-#### 4.4 Slack Alert Integration
+#### 4.4 Email Alert Integration
+
+I'm using Python's built-in `smtplib` — no extra dependencies needed:
 
 ```python
-import httpx
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
 
-async def send_slack_alert(provider: str, drift_score: float, webhook_url: str):
-    payload = {
-        "text": f"🚨 *DriftScope Canary Alert*",
-        "blocks": [{
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f"*Provider:* `{provider}`\n"
-                    f"*Centroid Drift:* `{drift_score:.4f}` (threshold: 0.05)\n"
-                    f"*Detected at:* {datetime.utcnow().isoformat()}Z\n\n"
-                    f"_A silent model update may have occurred. Review your eval results._"
-                )
-            }
-        }]
-    }
-    async with httpx.AsyncClient() as client:
-        await client.post(webhook_url, json=payload)
+async def send_email_alert(
+    provider: str,
+    drift_score: float,
+    to_email: str,
+    smtp_host: str,
+    smtp_port: int,
+    smtp_user: str,
+    smtp_password: str
+):
+    subject = f"🚨 DriftScope Canary Alert — {provider} drift detected"
+
+    body = f"""
+    DriftScope Canary Alert
+    ========================
+    Provider      : {provider}
+    Centroid Drift: {drift_score:.4f}  (threshold: 0.05)
+    Detected at   : {datetime.utcnow().isoformat()}Z
+
+    A silent model update may have occurred.
+    Review your eval results at http://localhost:3000 (Grafana).
+    """
+
+    msg = MIMEMultipart()
+    msg["From"]    = smtp_user
+    msg["To"]      = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
+        server.login(smtp_user, smtp_password)
+        server.sendmail(smtp_user, to_email, msg.as_string())
 ```
+
+Configure via environment variables — works with Gmail, Outlook, or any SMTP provider.
 
 #### 4.5 Multi-Provider Comparison Dashboard
 
-Add a Grafana panel showing side-by-side quality scores across providers:
+I'll add a Grafana panel showing side-by-side quality scores across providers:
 
 ```
-driftscope_quality_score{model_version="gpt-4o"}
-driftscope_quality_score{model_version="claude-3-5-sonnet"}
+driftscope_quality_score{model_version="gemini-2.0-flash"}
 driftscope_quality_score{model_version="llama3-local"}
 ```
 
 #### 4.6 30-Day Empirical Study
 
-Run the canary daily for 30 days. Log:
+I'll run the canary daily for 30 days and log:
 - Date
-- Provider (`openai`, `anthropic`, `local`)
+- Provider (`gemini`, `ollama`)
 - Centroid drift score
 - Alert threshold crossed? (yes/no)
 - Any corroborating external evidence (changelog entries, community reports)
 
-**This data does not exist publicly — it is your novel contribution.**
-
-#### 4.7 Write-Up
-
-Publish a blog post or short research note:
-> *"What we observed running a 30-day canary against OpenAI and Anthropic"*
-
-Even if you detect zero changes, the null result is interesting and publishable. Target: GitHub README + dev.to or arXiv.
+**This data does not exist publicly — it's my novel contribution to the space.**
 
 **Deliverable checklist:**
 - [ ] `run_canary()` computes centroid and drift score correctly
 - [ ] `centroid_history` table storing daily snapshots
 - [ ] Nightly cron job running at `0 2 * * *`
-- [ ] Slack/email alert fires when `drift_score > 0.05`
+- [ ] Email alert fires when `drift_score > 0.05`
 - [ ] Multi-provider comparison panel in Grafana
 - [ ] 30 days of daily canary data logged
-- [ ] Write-up published (blog post / arXiv note)
-
----
-
-## 🗺️ Competitive Landscape
-
-| Tool | What it actually does | What DriftScope adds for learning |
-|------|----------------------|----------------------------------|
-| **Arize Phoenix** (9,100+ ⭐) | Tracing + LLM-judge + embedding drift + composite weighted score + CI evals | You build the same thing from scratch. You learn *why* each design decision exists. Novel additions: stat drift + canary. |
-| **Evidently AI** | Input drift + LLM output eval + CI/CD GitHub Action that blocks PRs. 100+ metrics. Apache 2.0. | Evidently's CI gate requires their config DSL. Yours is pure Python + GitHub Actions YAML. Full control, full understanding. |
-| **DeepEval / Confident AI** | 50+ research-backed metrics. LLM-as-judge. CI integration. 80-90% human agreement. Used by OpenAI, Google, Microsoft. | DeepEval abstracts the scorer away. You implement it yourself. You understand what '80-90% agreement' means. |
-| **Langfuse** (21,000+ ⭐) | Tracing + prompt management + eval. MIT licensed. Acquired by ClickHouse 2025. | Langfuse requires building your own eval layer. DriftScope builds that layer explicitly. Stat drift + canary not in Langfuse. |
-| **(gap)** | Rolling Mann-Whitney U test on output embedding distributions across time windows. No packaged tool ships this. | ✅ DriftScope ships this. Genuinely novel. Math-based drift gating, not threshold vibes. |
-| **(gap)** | Nightly provider-change canary detecting silent OpenAI/Anthropic model updates. No existing tool ships this. | ✅ DriftScope ships this. Genuinely novel. 30-day empirical data is publishable. |
 
 ---
 
@@ -740,21 +779,21 @@ Even if you detect zero changes, the null result is interesting and publishable.
 ## ✅ Quick-Start Checklist
 
 <details>
-<summary><strong>Week 1–2</strong></summary>
+<summary><strong>Phase 1 — Foundation</strong></summary>
 
-- [ ] `pip install sentence-transformers fastapi uvicorn psycopg2-binary alembic`
+- [ ] `pip install sentence-transformers fastapi uvicorn psycopg2-binary alembic google-generativeai`
 - [ ] Create PostgreSQL schema: `golden_cases`, `eval_results` + Alembic migration
 - [ ] Implement `embed()` + `cosine_sim()` utilities with pytest unit tests
 - [ ] Build `POST /cases` and `POST /cases/{id}/run` FastAPI endpoints
-- [ ] Wire OpenAI + Anthropic behind unified `LLMClient` (factory pattern)
-- [ ] Seed 20+ golden test cases for your chosen domain
+- [ ] Wire Gemini 2.0 Flash + Ollama behind unified `LLMClient` (factory pattern)
+- [ ] Seed 20+ golden test cases for my chosen domain
 
 </details>
 
 <details>
-<summary><strong>Week 3–4</strong></summary>
+<summary><strong>Phase 2 — Intelligence Layer</strong></summary>
 
-- [ ] Add LLM-as-judge with structured rubric prompt template
+- [ ] Add LLM-as-judge with structured rubric prompt (Gemini JSON mode)
 - [ ] Implement cost guard: skip judge if cosine >= 0.85 and not safety-tagged
 - [ ] Implement composite score formula with configurable weights
 - [ ] Build `GET /reports/{model_version}` aggregate endpoint
@@ -764,7 +803,7 @@ Even if you detect zero changes, the null result is interesting and publishable.
 </details>
 
 <details>
-<summary><strong>Week 5–6</strong></summary>
+<summary><strong>Phase 3 — Drift Detection & DevOps</strong></summary>
 
 - [ ] Implement `detect_drift()` using `scipy.stats.mannwhitneyu`
 - [ ] Add rolling window queries to `eval_results` (24h vs 7-day baseline)
@@ -778,16 +817,14 @@ Even if you detect zero changes, the null result is interesting and publishable.
 </details>
 
 <details>
-<summary><strong>Week 7–8</strong></summary>
+<summary><strong>Phase 4 — Provider-Change Canary</strong></summary>
 
 - [ ] Implement `run_canary()` with embedding centroid tracking
 - [ ] Add `centroid_history` table to PostgreSQL schema
 - [ ] Schedule nightly canary via GitHub Actions cron (`0 2 * * *`)
-- [ ] Set up Slack/email alert webhook for centroid drift > 0.05
+- [ ] Set up email alert via `smtplib` for centroid drift > 0.05
 - [ ] Add multi-provider comparison panel to Grafana dashboard
 - [ ] Run canary for 30 days — log all centroid drift values
-- [ ] Write up findings: blog post or short arXiv note on provider drift observations
-- [ ] Publish to GitHub with full README, architecture diagram, and setup guide
 
 </details>
 
@@ -800,8 +837,9 @@ Even if you detect zero changes, the null result is interesting and publishable.
 git clone https://github.com/Halcyonic-01/DriftScope.git
 cd DriftScope
 
-# 2. Copy env file and fill in your API keys
+# 2. Copy env file and fill in your API key
 cp .env.example .env
+# Add your GEMINI_API_KEY from https://aistudio.google.com
 
 # 3. Spin up the full stack (FastAPI + PostgreSQL + Prometheus + Grafana)
 docker compose up --build
@@ -821,12 +859,6 @@ open http://localhost:3000
 
 ---
 
-## 📄 License
-
-MIT — see [LICENSE](LICENSE).
-
----
-
 <div align="center">
-  <sub>Built as a learning project · June 2026 · All competitive claims verified against June 2026 tool documentation</sub>
+  <sub>Built as a learning project · June 2026 · Research: ACM Queue 2025 · arXiv:2602.11165 · arXiv:2511.15992 · Paunova DTE 2025 · arXiv:2411.15594 · arXiv:2501.18243</sub>
 </div>
