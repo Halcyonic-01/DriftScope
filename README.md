@@ -5,8 +5,8 @@
 
 # 🔭 DriftScope
 
-> **A full-stack LLM quality monitoring platform I'm building from scratch.**  
-> I'm using it to detect silent model regressions, run statistically-grounded drift detection, and catch provider-side model swaps before users do.
+> **A full-stack LLM quality monitoring platform built from scratch.**
+> Designed to detect silent model regressions, run statistically-grounded drift detection, and catch provider-side model swaps before users do.
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
@@ -19,7 +19,7 @@
 ## 📖 Table of Contents
 
 - [Why DriftScope](#-why-driftscope)
-- [What I'm Building](#-what-im-building)
+- [What DriftScope Does](#-what-driftscope-does)
 - [Architecture Overview](#-architecture-overview)
 - [Tech Stack](#-tech-stack)
 - [Free LLM Choice](#-free-llm-choice)
@@ -41,11 +41,11 @@ The underlying pain is real even if the tooling space is crowded. Enterprises sp
 > *"There is no guarantee that the system named GPT-4o at 16:18 will be the same system at 18:16."*  
 > — Murphy & Underwood, ACM Queue 2025
 
-The specific gap I'm addressing: **no existing open-source tool detects when a provider silently updates their model** — your application's behaviour changes with no API version bump, no changelog, no warning. I'm building DriftScope to solve exactly this.
+The specific gap DriftScope addresses: **no existing open-source tool detects when a provider silently updates their model** — your application’s behaviour changes with no API version bump, no changelog, no warning. DriftScope is built to solve exactly this.
 
 ---
 
-## 🏗️ What I'm Building
+## 🏗️ What DriftScope Does
 
 DriftScope is a **five-module system**, each independently useful, combined into one platform:
 
@@ -148,7 +148,7 @@ CREATE TABLE centroid_history (
 
 ## 🤖 Free LLM Choice
 
-I'm using **Google Gemini 2.0 Flash** as the LLM for both the judge and the canary runs. Here's why it's the best free option for this project:
+**Google Gemini 2.0 Flash** is used as the LLM for both the judge and the canary runs. Here’s why it’s the best free option for this project:
 
 | Criterion | Gemini 2.0 Flash |
 |-----------|-----------------|
@@ -187,7 +187,7 @@ Get a free API key at [aistudio.google.com](https://aistudio.google.com).
 
 ### Phase 1 — Foundation
 
-**My goal:** Stand up the core data layer, embedding utilities, and REST API skeleton. By the end of this phase I should be able to store golden test cases and run a basic cosine-similarity eval against a live model.
+**Goal:** Stand up the core data layer, embedding utilities, and REST API skeleton. By the end of this phase, golden test cases can be stored and a basic cosine-similarity eval can be run against a live model.
 
 #### 1.1 Environment Setup
 
@@ -196,7 +196,7 @@ pip install sentence-transformers fastapi uvicorn psycopg2-binary alembic \
             scipy numpy pytest httpx python-dotenv google-generativeai
 ```
 
-My `.env.example`:
+The `.env.example` template:
 ```
 DATABASE_URL=postgresql://user:pass@localhost:5432/driftscope
 GEMINI_API_KEY=AIza...
@@ -204,16 +204,16 @@ GEMINI_API_KEY=AIza...
 
 #### 1.2 PostgreSQL Schema + Alembic Migration
 
-- I'll initialise Alembic: `alembic init alembic/`
+- Initialise Alembic: `alembic init alembic/`
 - Create the `golden_cases` and `eval_results` tables (see schema above)
 - Run the initial migration: `alembic upgrade head`
-- Write a seed script that inserts 20+ golden test cases for my chosen domain (e.g. medical Q&A, legal summarisation, customer support)
+- Write a seed script that inserts 20+ golden test cases for the chosen domain (e.g. medical Q&A, legal summarisation, customer support)
 
-**Key design decision:** I'm storing `expected_topics` (what the model should cover) and `safety_rules` (natural-language rules for the LLM judge), **not** verbatim expected strings. This makes evals robust to the non-deterministic nature of LLM outputs.
+**Key design decision:** DriftScope stores `expected_topics` (what the model should cover) and `safety_rules` (natural-language rules for the LLM judge), **not** verbatim expected strings. This makes evals robust to the non-deterministic nature of LLM outputs.
 
 #### 1.3 Embedding Utilities
 
-I'll implement two core utility functions with full pytest unit tests:
+Two core utility functions are implemented with full pytest unit tests:
 
 ```python
 from sentence_transformers import SentenceTransformer
@@ -233,7 +233,7 @@ def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
 > **Why `all-MiniLM-L6-v2`?**  
 > 384-dimensional, 22M params, runs in ~5ms on CPU. arXiv:2602.11165 shows models achieve >99% cosine similarity with gold references despite <8% BLEU-1 overlap — embeddings capture *meaning*, lexical metrics don't.
 
-**Tests I'll write:**
+**Tests:**
 - `test_embed_returns_unit_vector()`
 - `test_cosine_sim_identical_texts()`
 - `test_cosine_sim_orthogonal_texts()`
@@ -253,7 +253,7 @@ def get_client(provider: str) -> LLMClient:
     ...
 ```
 
-I'm wiring **Gemini 2.0 Flash** as the primary provider, with **Ollama** (local) as the fallback. The factory pattern means I can swap models without touching any business logic.
+**Gemini 2.0 Flash** is wired as the primary provider, with **Ollama** (local) as the fallback. The factory pattern means providers can be swapped without touching any business logic.
 
 #### 1.5 FastAPI Endpoints
 
@@ -276,11 +276,11 @@ GET  /cases/{case_id}/results → history of eval results for a case
 
 ### Phase 2 — Intelligence Layer
 
-**My goal:** Add the LLM-as-judge, cost guard, composite scoring, and aggregated reporting. By end of this phase I want an 80%+ covered integration test suite with mocked LLM responses.
+**Goal:** Add the LLM-as-judge, cost guard, composite scoring, and aggregated reporting. By end of this phase an 80%+ covered integration test suite with mocked LLM responses should be complete.
 
 #### 2.1 LLM-as-Judge (Gemini 2.0 Flash)
 
-I'll implement a structured rubric prompt that returns `{pass: bool, reason: str}`:
+A structured rubric prompt is implemented that returns `{pass: bool, reason: str}`:
 
 ```python
 import google.generativeai as genai
@@ -311,7 +311,7 @@ Respond with: {{"pass": true/false, "reason": "one sentence explanation"}}"""
 
 #### 2.2 Cost Guard
 
-Even with the free tier, I want to be deliberate about judge invocations. I'll only call the judge when:
+Even with the free tier, judge invocations should be deliberate. The judge is only called when:
 1. `cosine_score < 0.85` (borderline semantic match), **OR**
 2. The case has `"safety"` in its tags
 
@@ -341,7 +341,7 @@ def composite_score(
     return (w1 * cosine) + (w2 * judge)
 ```
 
-I'm storing `cosine_score`, `judge_score`, and `composite_score` separately in `eval_results` for full auditability.
+`cosine_score`, `judge_score`, and `composite_score` are stored separately in `eval_results` for full auditability.
 
 #### 2.4 Reporting Endpoint
 
@@ -396,11 +396,11 @@ async def test_run_eval_stores_composite_score(mock_llm_client, async_client, db
 
 ### Phase 3 — Drift Detection & DevOps
 
-**My goal:** Add statistically-grounded drift detection, wire it into a GitHub Actions CI gate, and launch the full observability stack. By the end of this phase, a single `docker compose up` should spin the entire platform locally.
+**Goal:** Add statistically-grounded drift detection, wire it into a GitHub Actions CI gate, and launch the full observability stack. By the end of this phase, a single `docker compose up` should spin the entire platform locally.
 
 #### 3.1 Mann-Whitney Drift Detector
 
-This is the **novel core** of DriftScope. Rather than comparing single scores, I'm comparing *distributions* — this is what makes the drift detection defensible and not just vibes-based thresholds.
+This is the **novel core** of DriftScope. Rather than comparing single scores, it compares *distributions* — this is what makes the drift detection defensible and not just vibes-based thresholds.
 
 ```python
 from scipy.stats import mannwhitneyu
@@ -452,7 +452,7 @@ Response:
 
 #### 3.2 GitHub Actions CI/CD Gate
 
-I'll create `.github/workflows/eval.yml`:
+A `.github/workflows/eval.yml` CI workflow is created:
 
 ```yaml
 name: DriftScope Eval Gate
@@ -604,11 +604,11 @@ docker compose up --build
 
 ### Phase 4 — Provider-Change Canary & Empirical Study
 
-**My goal:** Build the second novel feature — a nightly canary that uses SBERT centroid tracking to detect when a provider silently swaps their underlying model. I'll run it against Gemini and a local Ollama model to observe real drift over time.
+**Goal:** Build the second novel feature — a nightly canary that uses SBERT centroid tracking to detect when a provider silently swaps their underlying model. Run against Gemini and a local Ollama model to observe real drift over time.
 
 #### 4.1 Embedding Centroid Tracking
 
-I'm borrowing the technique from Zanbaghi et al. (arXiv:2511.15992), which uses Sentence-BERT centroid tracking to detect backdoored LLMs with **92.5% accuracy**, and applying it to provider-update detection.
+This borrows the technique from Zanbaghi et al. (arXiv:2511.15992), which uses Sentence-BERT centroid tracking to detect backdoored LLMs with **92.5% accuracy**, applied here to provider-update detection.
 
 ```python
 import numpy as np
@@ -663,7 +663,7 @@ CREATE TABLE centroid_history (
 
 #### 4.3 GitHub Actions Cron Schedule
 
-I'll create `.github/workflows/canary.yml`:
+A `.github/workflows/canary.yml` workflow is created:
 
 ```yaml
 name: DriftScope Nightly Canary
@@ -690,7 +690,7 @@ jobs:
 
 #### 4.4 Email Alert Integration
 
-I'm using Python's built-in `smtplib` — no extra dependencies needed:
+Python's built-in `smtplib` is used — no extra dependencies needed:
 
 ```python
 import smtplib
@@ -735,7 +735,7 @@ Configure via environment variables — works with Gmail, Outlook, or any SMTP p
 
 #### 4.5 Multi-Provider Comparison Dashboard
 
-I'll add a Grafana panel showing side-by-side quality scores across providers:
+A Grafana panel is added showing side-by-side quality scores across providers:
 
 ```
 driftscope_quality_score{model_version="gemini-2.0-flash"}
@@ -744,14 +744,14 @@ driftscope_quality_score{model_version="llama3-local"}
 
 #### 4.6 30-Day Empirical Study
 
-I'll run the canary daily for 30 days and log:
+The canary runs daily for 30 days, logging:
 - Date
 - Provider (`gemini`, `ollama`)
 - Centroid drift score
 - Alert threshold crossed? (yes/no)
 - Any corroborating external evidence (changelog entries, community reports)
 
-**This data does not exist publicly — it's my novel contribution to the space.**
+**This data does not exist publicly — it is a novel contribution to the space.**
 
 **Deliverable checklist:**
 - [ ] `run_canary()` computes centroid and drift score correctly
@@ -786,7 +786,7 @@ I'll run the canary daily for 30 days and log:
 - [ ] Implement `embed()` + `cosine_sim()` utilities with pytest unit tests
 - [ ] Build `POST /cases` and `POST /cases/{id}/run` FastAPI endpoints
 - [ ] Wire Gemini 2.0 Flash + Ollama behind unified `LLMClient` (factory pattern)
-- [ ] Seed 20+ golden test cases for my chosen domain
+- [ ] Seed 20+ golden test cases for the chosen domain
 
 </details>
 
