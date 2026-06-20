@@ -49,6 +49,7 @@ Thumbs.db
 htmlcov/
 coverage.xml
 *.log
+examples
 
 # ── MLflow ────────────────────────────────────────────────────
 mlruns/
