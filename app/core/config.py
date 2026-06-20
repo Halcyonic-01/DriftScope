@@ -14,6 +14,11 @@ class Settings(BaseSettings):
 
     # ── LLM ───────────────────────────────────────────────────────────
     gemini_api_key: str = ""
+    gemini_max_output_tokens: int = 4096
+    gemini_retry_max_output_tokens: int = 8192
+    judge_cosine_threshold: float = 0.65
+    composite_cosine_weight: float = 0.6
+    composite_judge_weight: float = 0.4
 
     # ── App ───────────────────────────────────────────────────────────
     app_env: str = "development"

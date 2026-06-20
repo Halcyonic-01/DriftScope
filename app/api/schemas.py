@@ -55,8 +55,8 @@ class RunEvalRequest(BaseModel):
     """Body for POST /cases/{case_id}/run — execute an eval against an LLM."""
     model_version: str = Field(
         ...,
-        description="Label for which LLM version is being evaluated (e.g. 'gemini-2.0-flash-v1').",
-        examples=["gemini-2.0-flash-v1"],
+        description="Label for which LLM version is being evaluated (e.g. 'gemini-2.5-flash-v1').",
+        examples=["gemini-2.5-flash-v1"],
     )
     provider: str = Field(
         default="mock",
@@ -107,3 +107,15 @@ class EvalResultListResponse(BaseModel):
     """Returned for GET /cases/{case_id}/results."""
     items: List[EvalResultResponse]
     total: int
+
+
+class ModelReportResponse(BaseModel):
+    """Returned for GET /reports/{model_version}."""
+    model_version: str
+    total_runs: int
+    avg_composite_score: Optional[float]
+    avg_cosine_score: Optional[float]
+    judge_pass_rate: Optional[float]
+    judge_invocation_rate: float
+    evaluated_from: Optional[datetime]
+    evaluated_to: Optional[datetime]

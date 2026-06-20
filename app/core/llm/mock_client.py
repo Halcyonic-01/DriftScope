@@ -14,6 +14,8 @@ WHY a mock?
     - Reliable (no flakiness from network errors)
 """
 
+from __future__ import annotations
+
 from app.core.llm.base import LLMClient, LLMResponse
 
 
@@ -28,14 +30,24 @@ class MockLLMClient(LLMClient):
         assert resp.text == "The sky is blue."
     """
 
-    def __init__(self, fixed_response: str = "This is a mock LLM response.") -> None:
+    def __init__(
+        self,
+        fixed_response: str = "This is a mock LLM response.",
+        fixed_judge_response: str = '{"pass": true, "reason": "Mock judge passed."}',
+    ) -> None:
         self._fixed_response = fixed_response
+        self._fixed_judge_response = fixed_judge_response
         self._call_count = 0   # track how many times complete() was called
 
-    def complete(self, prompt: str) -> LLMResponse:
+    def complete(self, prompt: str, response_mime_type: str | None = None) -> LLMResponse:
         self._call_count += 1
+        text = (
+            self._fixed_judge_response
+            if response_mime_type == "application/json"
+            else self._fixed_response
+        )
         return LLMResponse(
-            text=self._fixed_response,
+            text=text,
             provider="mock",
             model="mock-model",
             tokens_used=42,   # arbitrary
