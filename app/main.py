@@ -74,8 +74,10 @@ app = FastAPI(
 # ── Register Routers ──────────────────────────────────────────────────────────
 # Import here (not at top) to avoid circular imports at collection time
 from app.api.routes.cases import router as cases_router  # noqa: E402
+from app.api.routes.reports import router as reports_router  # noqa: E402
 
 app.include_router(cases_router)
+app.include_router(reports_router)
 
 
 # ── Health Check ──────────────────────────────────────────────────────────────

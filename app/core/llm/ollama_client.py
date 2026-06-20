@@ -14,6 +14,8 @@ HOW OLLAMA WORKS:
     3. Set LLM_PROVIDER=ollama in your .env
 """
 
+from __future__ import annotations
+
 import logging
 
 import httpx
@@ -44,7 +46,7 @@ class OllamaClient(LLMClient):
         self._model = model
         logger.info("OllamaClient initialised → %s, model: %s", base_url, model)
 
-    def complete(self, prompt: str) -> LLMResponse:
+    def complete(self, prompt: str, response_mime_type: str | None = None) -> LLMResponse:
         """
         Send a prompt to the local Ollama server.
         We use the /api/generate endpoint with stream=False.

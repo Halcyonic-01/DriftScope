@@ -28,13 +28,29 @@ class LLMResponse:
     Attributes:
         text:     The raw text the LLM returned.
         provider: Which LLM generated this (e.g. "gemini", "ollama").
-        model:    The specific model name (e.g. "gemini-2.0-flash").
+        model:    The specific model name (e.g. "gemini-2.5-flash").
         tokens_used: Total tokens consumed (prompt + completion). None if unknown.
     """
     text: str
     provider: str
     model: str
     tokens_used: Optional[int] = None
+
+
+class LLMProviderError(RuntimeError):
+    """Raised when an external LLM provider rejects or fails a request."""
+
+    def __init__(
+        self,
+        message: str,
+        provider: str,
+        status_code: int = 502,
+        retry_after_seconds: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
 
 
 class LLMClient(ABC):
@@ -47,12 +63,18 @@ class LLMClient(ABC):
     """
 
     @abstractmethod
-    def complete(self, prompt: str) -> LLMResponse:
+    def complete(
+        self,
+        prompt: str,
+        response_mime_type: Optional[str] = None,
+    ) -> LLMResponse:
         """
         Send a prompt to the LLM and return its response.
 
         Args:
             prompt: The full prompt string to send.
+            response_mime_type: Optional structured output hint, e.g.
+                "application/json" for judge calls.
 
         Returns:
             LLMResponse with the text and metadata.

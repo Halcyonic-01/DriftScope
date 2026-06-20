@@ -142,15 +142,15 @@ CREATE TABLE centroid_history (
 | CI/CD | GitHub Actions |
 | Observability | Prometheus + Grafana |
 | Infrastructure | Docker Compose, Redis |
-| LLM (Judge + Canary) | **Google Gemini 2.0 Flash** (free tier) |
+| LLM (Judge + Canary) | **Google Gemini 2.5 Flash** (free tier) |
 
 ---
 
 ## 🤖 Free LLM Choice
 
-**Google Gemini 2.0 Flash** is used as the LLM for both the judge and the canary runs. Here’s why it’s the best free option for this project:
+**Google Gemini 2.5 Flash** is used as the LLM for both the judge and the canary runs. Here’s why it’s the best free option for this project:
 
-| Criterion | Gemini 2.0 Flash |
+| Criterion | Gemini 2.5 Flash |
 |-----------|-----------------|
 | **Cost** | Free tier via [Google AI Studio](https://aistudio.google.com) — 15 RPM, 1M tokens/day |
 | **Structured output** | Native JSON mode — critical for the LLM-as-judge `{pass, reason}` schema |
@@ -167,7 +167,7 @@ pip install google-generativeai
 import google.generativeai as genai
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-2.0-flash")
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 response = model.generate_content(
     prompt,
@@ -253,7 +253,7 @@ def get_client(provider: str) -> LLMClient:
     ...
 ```
 
-**Gemini 2.0 Flash** is wired as the primary provider, with **Ollama** (local) as the fallback. The factory pattern means providers can be swapped without touching any business logic.
+**Gemini 2.5 Flash** is wired as the primary provider, with **Ollama** (local) as the fallback. The factory pattern means providers can be swapped without touching any business logic.
 
 #### 1.5 FastAPI Endpoints
 
@@ -278,7 +278,7 @@ GET  /cases/{case_id}/results → history of eval results for a case
 
 **Goal:** Add the LLM-as-judge, cost guard, composite scoring, and aggregated reporting. By end of this phase an 80%+ covered integration test suite with mocked LLM responses should be complete.
 
-#### 2.1 LLM-as-Judge (Gemini 2.0 Flash)
+#### 2.1 LLM-as-Judge (Gemini 2.5 Flash)
 
 A structured rubric prompt is implemented that returns `{pass: bool, reason: str}`:
 
@@ -286,7 +286,7 @@ A structured rubric prompt is implemented that returns `{pass: bool, reason: str
 import google.generativeai as genai
 import json
 
-model = genai.GenerativeModel("gemini-2.0-flash")
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 def judge_response(response: str, rule: str) -> dict:
     prompt = f"""You are a strict evaluator. Answer in JSON only.
@@ -312,15 +312,19 @@ Respond with: {{"pass": true/false, "reason": "one sentence explanation"}}"""
 #### 2.2 Cost Guard
 
 Even with the free tier, judge invocations should be deliberate. The judge is only called when:
-1. `cosine_score < 0.85` (borderline semantic match), **OR**
+1. `cosine_score < 0.65` (borderline semantic match), **OR**
 2. The case has `"safety"` in its tags
 
 ```python
 def should_invoke_judge(cosine_score: float, case_tags: list[str]) -> bool:
-    return cosine_score < 0.85 or "safety" in case_tags
+    return cosine_score < 0.65 or "safety" in case_tags
 ```
 
-This typically limits judge invocations to **<15% of evals**, keeping rate limits comfortable even on the free tier.
+The `0.65` threshold is calibrated for `all-MiniLM-L6-v2` against natural LLM
+answers. In practice, good long-form answers often land around `0.65–0.75`
+because they include useful details beyond the compact reference contract. This
+keeps the judge as a cost guard fallback instead of invoking it for most good
+responses.
 
 #### 2.3 Composite Weighted Score
 
@@ -738,7 +742,7 @@ Configure via environment variables — works with Gmail, Outlook, or any SMTP p
 A Grafana panel is added showing side-by-side quality scores across providers:
 
 ```
-driftscope_quality_score{model_version="gemini-2.0-flash"}
+driftscope_quality_score{model_version="gemini-2.5-flash"}
 driftscope_quality_score{model_version="llama3-local"}
 ```
 
@@ -785,7 +789,7 @@ The canary runs daily for 30 days, logging:
 - [ ] Create PostgreSQL schema: `golden_cases`, `eval_results` + Alembic migration
 - [ ] Implement `embed()` + `cosine_sim()` utilities with pytest unit tests
 - [ ] Build `POST /cases` and `POST /cases/{id}/run` FastAPI endpoints
-- [ ] Wire Gemini 2.0 Flash + Ollama behind unified `LLMClient` (factory pattern)
+- [ ] Wire Gemini 2.5 Flash + Ollama behind unified `LLMClient` (factory pattern)
 - [ ] Seed 20+ golden test cases for the chosen domain
 
 </details>
@@ -794,7 +798,7 @@ The canary runs daily for 30 days, logging:
 <summary><strong>Phase 2 — Intelligence Layer</strong></summary>
 
 - [ ] Add LLM-as-judge with structured rubric prompt (Gemini JSON mode)
-- [ ] Implement cost guard: skip judge if cosine >= 0.85 and not safety-tagged
+- [ ] Implement cost guard: skip judge if cosine >= 0.65 and not safety-tagged
 - [ ] Implement composite score formula with configurable weights
 - [ ] Build `GET /reports/{model_version}` aggregate endpoint
 - [ ] Write integration tests with mocked LLM responses (80%+ coverage)

@@ -31,6 +31,7 @@ from app.api.schemas import (
     RunEvalRequest,
 )
 from app.core.eval_service import run_eval
+from app.core.llm.base import LLMProviderError
 from app.db.models.golden_case import GoldenCase
 from app.db.models.eval_result import EvalResult
 from app.db.session import get_db_session
@@ -159,6 +160,17 @@ def run_case(
     except ValueError as exc:
         # e.g. unknown provider name from factory
         raise HTTPException(status_code=400, detail=str(exc))
+    except LLMProviderError as exc:
+        logger.warning("LLM provider failed for case=%s: %s", case_id, exc)
+        db.rollback()
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={
+                "provider": exc.provider,
+                "message": str(exc),
+                "retry_after_seconds": exc.retry_after_seconds,
+            },
+        )
     except Exception as exc:
         logger.exception("Eval failed for case=%s: %s", case_id, exc)
         db.rollback()
