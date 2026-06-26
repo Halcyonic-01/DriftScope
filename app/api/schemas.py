@@ -119,3 +119,16 @@ class ModelReportResponse(BaseModel):
     judge_invocation_rate: float
     evaluated_from: Optional[datetime]
     evaluated_to: Optional[datetime]
+
+
+class DriftDetectionResponse(BaseModel):
+    """Returned for GET /drift/{model_version}."""
+    model_version: str
+    status: str
+    drift_detected: bool
+    p_value: Optional[float]
+    effect_size: Optional[float]
+    current_mean: Optional[float]
+    baseline_mean: Optional[float]
+    current_count: int
+    baseline_count: int

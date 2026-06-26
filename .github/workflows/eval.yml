@@ -1,0 +1,167 @@
+name: DriftScope Eval Gate
+
+# ── Triggers ──────────────────────────────────────────────────────────────────
+# pull_request      → runs tests against the PR head commit (limited token)
+# pull_request_target → runs in the BASE repo context (has write token for comments)
+#
+# Why two triggers?
+#   The GITHUB_TOKEN on `pull_request` events from forks has READ-ONLY access.
+#   Posting a comment requires WRITE access, which only `pull_request_target`
+#   provides (it runs in the base repo context, not the fork).
+#   We split the work: tests run under `pull_request`, comments post under
+#   `pull_request_target`. The eval report is passed between them via an artifact.
+on:
+  pull_request:
+    branches: [main]
+  pull_request_target:
+    branches: [main]
+
+jobs:
+  # ── Job 1: Run tests and generate the eval report ─────────────────────────
+  # Runs ONLY on `pull_request` so it checks out and executes the PR's code.
+  # NEVER run untrusted PR code in a `pull_request_target` job — that would
+  # execute fork code with a privileged token (supply-chain risk).
+  eval:
+    name: Run Tests & Eval
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: driftscope_test
+          # FIX: was "test" — GitHub Actions runners connect as the OS user
+          # "runner" or fall back to "root". Explicitly setting to "postgres"
+          # (the Postgres superuser that always exists) avoids the
+          # "role root does not exist" error.
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # FIX: must match POSTGRES_USER / POSTGRES_PASSWORD above
+      DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/driftscope_test
+      GEMINI_API_KEY: test-key
+
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Wait for Postgres to be ready
+        run: |
+          for i in $(seq 1 15); do
+            pg_isready -h localhost -p 5432 -U postgres && break
+            echo "Waiting for postgres... attempt $i"
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: alembic upgrade head
+
+      - name: Run tests
+        run: pytest tests/test_phase2_scoring.py tests/test_llm_factory.py tests/test_drift.py -q
+
+      - name: Generate eval report
+        run: python scripts/run_eval.py --output eval_report.json
+
+      - name: Fail if score dropped more than 5 percent
+        run: |
+          python - <<'PY'
+          import json
+          import sys
+
+          report = json.load(open("eval_report.json", encoding="utf-8"))
+          if report["delta"] < -0.05:
+              print(f"Composite score dropped {report['delta'] * 100:.1f}% - blocking merge")
+              sys.exit(1)
+          print(f"Score delta: {report['delta'] * 100:.1f}% - within threshold")
+          PY
+
+      # Upload the report as an artifact so the comment job can read it.
+      # Artifacts are shared between jobs and across workflow triggers safely.
+      - name: Upload eval report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: eval_report.json
+          retention-days: 1
+
+  # ── Job 2: Post the PR comment ─────────────────────────────────────────────
+  # Runs ONLY on `pull_request_target` (base repo context) so the token has
+  # WRITE permission to post comments.
+  # IMPORTANT: This job does NOT checkout or execute any code from the PR.
+  # It only downloads the artifact and calls the GitHub API.
+  post-comment:
+    name: Post PR Comment
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write   # explicitly grant comment write permission
+
+    steps:
+      - name: Download eval report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: eval-report
+          # Artifacts from the `pull_request` workflow run of the same SHA
+          # are available here via the GitHub artifact store.
+        continue-on-error: true   # don't fail if tests didn't produce a report
+
+      - name: Post PR comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+
+            // Guard: if artifact wasn't produced (e.g. tests failed before report),
+            // post a failure notice instead of crashing.
+            if (!fs.existsSync('eval_report.json')) {
+              await github.rest.issues.createComment({
+                issue_number: context.payload.pull_request.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: '## DriftScope Eval Report\n\n⚠️ Eval report was not generated — tests may have failed. Check the **Run Tests & Eval** job for details.'
+              });
+              return;
+            }
+
+            const report = JSON.parse(fs.readFileSync('eval_report.json'));
+            const statusIcon = report.drift_detected ? '🚨' : '✅';
+            const deltaIcon  = report.delta < -0.05 ? '🔴' : report.delta < 0 ? '🟡' : '🟢';
+
+            const body = `## DriftScope Eval Report ${statusIcon}
+
+            | Metric | Value |
+            |--------|-------|
+            | Composite Score | \`${report.composite_score.toFixed(3)}\` |
+            | Baseline | \`${report.baseline_score.toFixed(3)}\` |
+            | Delta | ${deltaIcon} \`${(report.delta * 100).toFixed(1)}%\` |
+            | Drift Detected | ${report.drift_detected ? '**YES** 🚨' : 'NO ✅'} |
+
+            ${report.delta < -0.05 ? '> ❌ **Merge blocked** — composite score dropped more than 5%.' : '> ✅ Score within acceptable threshold.'}
+            `;
+
+            await github.rest.issues.createComment({
+              issue_number: context.payload.pull_request.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });

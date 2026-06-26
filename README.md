@@ -594,15 +594,23 @@ volumes:
 docker compose up --build
 ```
 
+**Implemented endpoints and commands:**
+```
+GET /drift/{model_version}  → Mann-Whitney drift status
+GET /metrics                → Prometheus text metrics
+
+docker compose up --build   → API + Postgres + Prometheus + Grafana
+```
+
 **Deliverable checklist:**
-- [ ] `detect_drift()` returns correct `p_value`, `effect_size`, `drift_detected` fields
-- [ ] `GET /drift/{model_version}` endpoint live and documented
-- [ ] `.github/workflows/eval.yml` triggers on PRs
-- [ ] PR comment posted with quality score table
-- [ ] Merge blocked when composite drops >5%
-- [ ] `/metrics` endpoint returns valid Prometheus text format
-- [ ] Grafana dashboard imported with all 3 gauges
-- [ ] `docker compose up` starts all 4 services cleanly
+- [x] `detect_drift()` returns correct `p_value`, `effect_size`, `drift_detected` fields
+- [x] `GET /drift/{model_version}` endpoint live and documented
+- [x] `.github/workflows/eval.yml` triggers on PRs
+- [x] PR comment posted with quality score table
+- [x] Merge blocked when composite drops >5%
+- [x] `/metrics` endpoint returns valid Prometheus text format
+- [x] Grafana dashboard imported with all 3 gauges
+- [x] `docker compose up` starts all 4 services cleanly
 
 ---
 
