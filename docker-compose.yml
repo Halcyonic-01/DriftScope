@@ -6,6 +6,12 @@ services:
     environment:
       DATABASE_URL: postgresql://drift:drift@db:5432/driftscope
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_REQUEST_TIMEOUT_SECONDS: ${GEMINI_REQUEST_TIMEOUT_SECONDS:-60}
+      ALERT_EMAIL: ${ALERT_EMAIL:-}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       APP_ENV: docker
     depends_on:
       db:

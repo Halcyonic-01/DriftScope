@@ -145,6 +145,7 @@ class GeminiClient(LLMClient):
         response = self._model.generate_content(
             prompt,
             generation_config=GenerationConfig(**generation_config),
+            request_options={"timeout": settings.gemini_request_timeout_seconds},
         )
         finish_reason = _finish_reason(response)
 
@@ -164,6 +165,7 @@ class GeminiClient(LLMClient):
             response = self._model.generate_content(
                 prompt,
                 generation_config=GenerationConfig(**retry_config),
+                request_options={"timeout": settings.gemini_request_timeout_seconds},
             )
 
         return response
@@ -171,7 +173,10 @@ class GeminiClient(LLMClient):
     def health_check(self) -> bool:
         """Ping Gemini with a minimal prompt to verify connectivity."""
         try:
-            resp = self._model.generate_content("Reply with the word OK only.")
+            resp = self._model.generate_content(
+                "Reply with the word OK only.",
+                request_options={"timeout": settings.gemini_request_timeout_seconds},
+            )
             return "ok" in resp.text.lower()
         except Exception as exc:
             logger.warning("Gemini health check failed: %s", exc)
