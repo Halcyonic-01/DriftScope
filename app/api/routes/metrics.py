@@ -11,6 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.drift import detect_drift
+from app.db.models.centroid_history import CentroidHistory
 from app.db.models.eval_result import EvalResult
 from app.db.session import get_db_session
 
@@ -36,6 +37,8 @@ def metrics(db: Session = Depends(get_db_session)):
         "# TYPE driftscope_drift_detected gauge",
         "# HELP driftscope_judge_pass_rate Average LLM judge pass rate (last 24 h).",
         "# TYPE driftscope_judge_pass_rate gauge",
+        "# HELP driftscope_canary_centroid_drift Latest provider canary centroid drift score.",
+        "# TYPE driftscope_canary_centroid_drift gauge",
     ]
 
     since = datetime.now(timezone.utc) - timedelta(hours=METRICS_WINDOW_HOURS)
@@ -67,6 +70,33 @@ def metrics(db: Session = Depends(get_db_session)):
                 f'driftscope_judge_pass_rate{{model_version="{label}"}} '
                 f"{float(judge_pass_rate):.6f}"
             )
+
+    latest_canaries = (
+        db.query(
+            CentroidHistory.provider,
+            func.max(CentroidHistory.recorded_at).label("latest_recorded_at"),
+        )
+        .group_by(CentroidHistory.provider)
+        .subquery()
+    )
+    canary_rows = (
+        db.query(CentroidHistory.provider, CentroidHistory.drift_score)
+        .join(
+            latest_canaries,
+            (CentroidHistory.provider == latest_canaries.c.provider)
+            & (
+                CentroidHistory.recorded_at
+                == latest_canaries.c.latest_recorded_at
+            ),
+        )
+        .all()
+    )
+
+    for provider, drift_score in canary_rows:
+        lines.append(
+            f'driftscope_canary_centroid_drift{{provider="{_label(provider)}"}} '
+            f"{float(drift_score):.6f}"
+        )
 
     return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 

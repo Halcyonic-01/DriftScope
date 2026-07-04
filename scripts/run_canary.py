@@ -1,0 +1,63 @@
+"""
+Run the Phase 4 provider-change canary.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from app.core.canary import DEFAULT_CANARY_THRESHOLD, run_canary
+from app.db.session import get_db
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--providers", nargs="+", default=["gemini", "ollama"])
+    parser.add_argument("--case-ids", nargs="*", default=None)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--threshold", type=float, default=DEFAULT_CANARY_THRESHOLD)
+    parser.add_argument("--baseline-days", type=int, default=7)
+    parser.add_argument("--output-jsonl", default="canary_log.jsonl")
+    args = parser.parse_args()
+
+    records = []
+    with get_db() as db:
+        for provider in args.providers:
+            result = run_canary(
+                db=db,
+                provider=provider,
+                golden_case_ids=args.case_ids,
+                alert_threshold=args.threshold,
+                baseline_days=args.baseline_days,
+                case_limit=args.limit,
+            )
+            record = {
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "provider": result.provider,
+                "drift_score": result.drift_score,
+                "alert_sent": result.alert_sent,
+                "response_count": result.response_count,
+                "history_id": result.history_id,
+            }
+            records.append(record)
+            print(json.dumps(record, sort_keys=True))
+
+    if args.output_jsonl:
+        path = Path(args.output_jsonl)
+        with path.open("a", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+if __name__ == "__main__":
+    main()
