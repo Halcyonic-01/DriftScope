@@ -1,29 +1,17 @@
 name: DriftScope Eval Gate
 
-# ── Triggers ──────────────────────────────────────────────────────────────────
-# pull_request      → runs tests against the PR head commit (limited token)
-# pull_request_target → runs in the BASE repo context (has write token for comments)
-#
-# Why two triggers?
-#   The GITHUB_TOKEN on `pull_request` events from forks has READ-ONLY access.
-#   Posting a comment requires WRITE access, which only `pull_request_target`
-#   provides (it runs in the base repo context, not the fork).
-#   We split the work: tests run under `pull_request`, comments post under
-#   `pull_request_target`. The eval report is passed between them via an artifact.
 on:
   pull_request:
     branches: [main]
-  pull_request_target:
-    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   # ── Job 1: Run tests and generate the eval report ─────────────────────────
-  # Runs ONLY on `pull_request` so it checks out and executes the PR's code.
-  # NEVER run untrusted PR code in a `pull_request_target` job — that would
-  # execute fork code with a privileged token (supply-chain risk).
   eval:
     name: Run Tests & Eval
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
     services:
@@ -74,7 +62,7 @@ jobs:
         run: alembic upgrade head
 
       - name: Run tests
-        run: pytest tests/test_phase2_scoring.py tests/test_llm_factory.py tests/test_drift.py -q
+        run: pytest tests/test_phase2_scoring.py tests/test_llm_factory.py tests/test_drift.py tests/test_canary.py -q
 
       - name: Generate eval report
         run: python scripts/run_eval.py --output eval_report.json
@@ -92,8 +80,6 @@ jobs:
           print(f"Score delta: {report['delta'] * 100:.1f}% - within threshold")
           PY
 
-      # Upload the report as an artifact so the comment job can read it.
-      # Artifacts are shared between jobs and across workflow triggers safely.
       - name: Upload eval report artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -103,25 +89,17 @@ jobs:
           retention-days: 1
 
   # ── Job 2: Post the PR comment ─────────────────────────────────────────────
-  # Runs ONLY on `pull_request_target` (base repo context) so the token has
-  # WRITE permission to post comments.
-  # IMPORTANT: This job does NOT checkout or execute any code from the PR.
-  # It only downloads the artifact and calls the GitHub API.
   post-comment:
     name: Post PR Comment
-    if: github.event_name == 'pull_request_target'
+    needs: eval
+    if: always()
     runs-on: ubuntu-latest
-
-    permissions:
-      pull-requests: write   # explicitly grant comment write permission
 
     steps:
       - name: Download eval report artifact
         uses: actions/download-artifact@v4
         with:
           name: eval-report
-          # Artifacts from the `pull_request` workflow run of the same SHA
-          # are available here via the GitHub artifact store.
         continue-on-error: true   # don't fail if tests didn't produce a report
 
       - name: Post PR comment
