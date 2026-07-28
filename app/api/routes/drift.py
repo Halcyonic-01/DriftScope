@@ -9,9 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas import DriftDetectionResponse
 from app.core.drift import detect_drift
+from app.core.security import require_api_key
 from app.db.session import get_db_session
 
-router = APIRouter(prefix="/drift", tags=["Drift"])
+router = APIRouter(prefix="/drift", tags=["Drift"], dependencies=[Depends(require_api_key)])
 
 
 @router.get("/{model_version}", response_model=DriftDetectionResponse)

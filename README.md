@@ -135,14 +135,12 @@ CREATE TABLE centroid_history (
 | Language | Python 3.11+ |
 | API Framework | FastAPI + Uvicorn |
 | Database | PostgreSQL 16 + Alembic (migrations) |
-| Embeddings | sentence-transformers (`all-MiniLM-L6-v2`) |
-| ML / Math | PyTorch, FAISS, scikit-learn, scipy |
-| Statistics | `scipy.stats.mannwhitneyu` |
-| Experiment Tracking | MLflow |
+| Embeddings | sentence-transformers (`all-MiniLM-L6-v2`), PyTorch |
+| Statistics | scipy (`scipy.stats.mannwhitneyu`) |
 | CI/CD | GitHub Actions |
 | Observability | Prometheus + Grafana |
-| Infrastructure | Docker Compose, Redis |
-| LLM (Judge + Canary) | **Google Gemini 2.5 Flash** (free tier) |
+| Infrastructure | Docker Compose |
+| LLM (Judge + Canary) | **Google Gemini 2.5 Flash** (free tier), Ollama (local fallback) |
 
 ---
 
@@ -868,6 +866,16 @@ open http://localhost:8000/docs
 # 7. Open Grafana dashboard
 open http://localhost:3000
 ```
+
+### 🔑 API Auth (optional)
+
+By default the API is open — no key required. To lock it down, set `API_KEY` in `.env` to any random string, then send it back on every request via the `X-API-Key` header:
+
+```bash
+curl http://localhost:8000/cases -H "X-API-Key: your-secret-here"
+```
+
+`/health` and `/metrics` are always open (liveness probes and Prometheus scraping don't send custom headers). Everything else — `/cases`, `/drift`, `/reports` — requires the key once `API_KEY` is set.
 
 ---
 

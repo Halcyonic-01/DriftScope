@@ -20,31 +20,32 @@ import logging
 
 import httpx
 
-from app.core.llm.base import LLMClient, LLMResponse
+from app.core.config import settings
+from app.core.llm.base import LLMClient, LLMProviderError, LLMResponse
 
 logger = logging.getLogger(__name__)
-
-# Default Ollama server location (same machine)
-OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "llama3"   # change to any model you have pulled
 
 
 class OllamaClient(LLMClient):
     """
     LLM client backed by a locally running Ollama server.
-    
+
     No API key required — all inference happens on your own machine.
     Requires Ollama to be installed and running: https://ollama.ai
+
+    base_url/model default to settings.ollama_base_url/settings.ollama_model
+    (configurable via OLLAMA_BASE_URL / OLLAMA_MODEL in .env) so switching
+    models doesn't require editing source code.
     """
 
     def __init__(
         self,
-        base_url: str = OLLAMA_BASE_URL,
-        model: str = OLLAMA_MODEL,
+        base_url: str | None = None,
+        model: str | None = None,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
-        self._model = model
-        logger.info("OllamaClient initialised → %s, model: %s", base_url, model)
+        self._base_url = (base_url or settings.ollama_base_url).rstrip("/")
+        self._model = model or settings.ollama_model
+        logger.info("OllamaClient initialised → %s, model: %s", self._base_url, self._model)
 
     def complete(self, prompt: str, response_mime_type: str | None = None) -> LLMResponse:
         """
@@ -62,16 +63,43 @@ class OllamaClient(LLMClient):
             },
         }
 
-        # httpx is a modern HTTP client — similar to requests but async-capable
-        with httpx.Client(timeout=120.0) as client:  # 2 min timeout
-            response = client.post(
-                f"{self._base_url}/api/generate",
-                json=payload,
-            )
-            response.raise_for_status()  # raises if HTTP status >= 400
+        try:
+            # httpx is a modern HTTP client — similar to requests but async-capable
+            with httpx.Client(timeout=settings.ollama_request_timeout_seconds) as client:
+                response = client.post(
+                    f"{self._base_url}/api/generate",
+                    json=payload,
+                )
+                response.raise_for_status()  # raises if HTTP status >= 400
+        except httpx.ConnectError as exc:
+            raise LLMProviderError(
+                f"Could not connect to Ollama at {self._base_url}. "
+                "Is `ollama serve` running?",
+                provider="ollama",
+                status_code=503,
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise LLMProviderError(
+                f"Ollama request timed out after {settings.ollama_request_timeout_seconds}s.",
+                provider="ollama",
+                status_code=504,
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            raise LLMProviderError(
+                f"Ollama returned HTTP {exc.response.status_code}: {exc.response.text[:200]}",
+                provider="ollama",
+                status_code=502,
+            ) from exc
 
         data = response.json()
         text = data.get("response", "").strip()
+
+        if not text:
+            raise LLMProviderError(
+                "Ollama returned an empty completion.",
+                provider="ollama",
+                status_code=502,
+            )
 
         logger.debug("Ollama response: %s...", text[:80])
 

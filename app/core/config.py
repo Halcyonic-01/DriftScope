@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     gemini_max_output_tokens: int = 4096
     gemini_retry_max_output_tokens: int = 8192
     gemini_request_timeout_seconds: int = 60
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3"
+    ollama_request_timeout_seconds: int = 120
     judge_cosine_threshold: float = 0.65
     composite_cosine_weight: float = 0.6
     composite_judge_weight: float = 0.4
@@ -24,6 +27,12 @@ class Settings(BaseSettings):
     # ── App ───────────────────────────────────────────────────────────
     app_env: str = "development"
     log_level: str = "INFO"
+
+    # ── API Auth ──────────────────────────────────────────────────────
+    # Shared-secret key required via the X-API-Key header on protected
+    # routes. Leave empty (the default) to disable auth entirely — that's
+    # the local/dev default so nothing breaks if you don't set it.
+    api_key: str = ""
 
     # ── Email Alerts ──────────────────────────────────────────────────
     alert_email: str = ""
