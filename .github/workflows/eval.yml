@@ -88,7 +88,66 @@ jobs:
           path: eval_report.json
           retention-days: 1
 
-  # ── Job 2: Post the PR comment ─────────────────────────────────────────────
+  # ── Job 2: Integration & E2E tests against a real Postgres ────────────────
+  integration-e2e:
+    name: Integration & E2E Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: driftscope_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/driftscope_test
+      GEMINI_API_KEY: test-key
+
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Wait for Postgres to be ready
+        run: |
+          for i in $(seq 1 15); do
+            pg_isready -h localhost -p 5432 -U postgres && break
+            echo "Waiting for postgres... attempt $i"
+            sleep 2
+          done
+
+      - name: Run migrations
+        run: alembic upgrade head
+
+      # Integration/e2e tests run a real all-MiniLM-L6-v2 embedding pass
+      # (see app/core/embeddings.py), so cache the ~80MB model download
+      # across runs instead of re-fetching it from Hugging Face every time.
+      - name: Cache sentence-transformers model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: sentence-transformers-all-MiniLM-L6-v2
+
+      - name: Run integration and e2e tests
+        run: pytest -m "integration or e2e" -q
+
+  # ── Job 3: Post the PR comment ─────────────────────────────────────────────
   post-comment:
     name: Post PR Comment
     needs: eval
