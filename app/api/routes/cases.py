@@ -32,6 +32,7 @@ from app.api.schemas import (
 )
 from app.core.eval_service import run_eval
 from app.core.llm.base import LLMProviderError
+from app.core.security import require_api_key
 from app.db.models.golden_case import GoldenCase
 from app.db.models.eval_result import EvalResult
 from app.db.session import get_db_session
@@ -39,7 +40,7 @@ from app.db.session import get_db_session
 logger = logging.getLogger(__name__)
 
 # All routes in this file will be prefixed with /cases
-router = APIRouter(prefix="/cases", tags=["Cases"])
+router = APIRouter(prefix="/cases", tags=["Cases"], dependencies=[Depends(require_api_key)])
 
 
 # ── POST /cases ───────────────────────────────────────────────────────────────
@@ -172,9 +173,11 @@ def run_case(
             },
         )
     except Exception as exc:
+        # Log the real exception server-side, but don't echo internal
+        # details (stack traces, DB errors, etc.) back to API callers.
         logger.exception("Eval failed for case=%s: %s", case_id, exc)
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Eval failed: {exc}")
+        raise HTTPException(status_code=500, detail="Eval failed due to an internal error.")
 
 
 # ── GET /cases/{case_id}/results ──────────────────────────────────────────────

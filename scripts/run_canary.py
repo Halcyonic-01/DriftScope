@@ -30,17 +30,27 @@ def main() -> None:
     parser.add_argument("--output-jsonl", default="canary_log.jsonl")
     args = parser.parse_args()
 
+    logger = logging.getLogger(__name__)
+
+    # Each provider gets its own get_db() session/transaction. Sharing one
+    # transaction across all providers meant a single provider failing
+    # (e.g. Gemini quota exhausted) would roll back every other provider's
+    # already-successful centroid_history write too, since get_db() only
+    # commits once at the very end of the `with` block.
     records = []
-    with get_db() as db:
-        for provider in args.providers:
-            result = run_canary(
-                db=db,
-                provider=provider,
-                golden_case_ids=args.case_ids,
-                alert_threshold=args.threshold,
-                baseline_days=args.baseline_days,
-                case_limit=args.limit,
-            )
+    had_failure = False
+
+    for provider in args.providers:
+        try:
+            with get_db() as db:
+                result = run_canary(
+                    db=db,
+                    provider=provider,
+                    golden_case_ids=args.case_ids,
+                    alert_threshold=args.threshold,
+                    baseline_days=args.baseline_days,
+                    case_limit=args.limit,
+                )
             record = {
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
                 "provider": result.provider,
@@ -49,14 +59,26 @@ def main() -> None:
                 "response_count": result.response_count,
                 "history_id": result.history_id,
             }
-            records.append(record)
-            print(json.dumps(record, sort_keys=True))
+        except Exception as exc:
+            logger.error("Canary run failed for provider=%s: %s", provider, exc)
+            had_failure = True
+            record = {
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "provider": provider,
+                "error": str(exc),
+            }
+
+        records.append(record)
+        print(json.dumps(record, sort_keys=True))
 
     if args.output_jsonl:
         path = Path(args.output_jsonl)
         with path.open("a", encoding="utf-8") as handle:
             for record in records:
                 handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+    if had_failure:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -9,10 +9,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.schemas import ModelReportResponse
+from app.core.security import require_api_key
 from app.db.models.eval_result import EvalResult
 from app.db.session import get_db_session
 
-router = APIRouter(prefix="/reports", tags=["Reports"])
+router = APIRouter(prefix="/reports", tags=["Reports"], dependencies=[Depends(require_api_key)])
 
 
 @router.get("/{model_version}", response_model=ModelReportResponse)

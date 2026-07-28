@@ -9,7 +9,5 @@ htmlcov
 .env.*
 !.env.example
 examples
-mlruns
-mlartifacts
 grafana-data
 prometheus-data
