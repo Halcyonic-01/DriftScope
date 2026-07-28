@@ -871,6 +871,38 @@ open http://localhost:3000
 
 ---
 
+## 🧪 Running Tests
+
+Tests live in three tiers under `tests/`:
+
+| Tier | Location | What it covers | Needs a DB? |
+|------|----------|-----------------|-------------|
+| Unit | `tests/test_*.py` | Pure logic — scoring, drift stats, embeddings, LLM factory — with mocked dependencies | No |
+| Integration | `tests/integration/` | Individual FastAPI routes against a real Postgres session (via the app's own `mock` LLM provider) | Yes |
+| End-to-end | `tests/e2e/` | Full multi-step workflows through the HTTP API — create case → run evals → report → drift → metrics; canary run → `/metrics` | Yes |
+
+```bash
+# Everything
+pytest
+
+# Just unit tests (fast, no DB)
+pytest -m "not integration and not e2e"
+
+# Just integration or e2e
+pytest -m integration
+pytest -m e2e
+```
+
+Integration/e2e tests run against `DATABASE_URL` (from `.env`) by default. Point `TEST_DATABASE_URL` at a separate database to isolate test runs from dev data:
+
+```bash
+TEST_DATABASE_URL=postgresql://drift:drift@localhost:5432/driftscope_test pytest -m "integration or e2e"
+```
+
+Every test runs inside a transaction that's rolled back afterwards (including nested `commit()` calls made by route handlers), so nothing written during a test run is ever persisted — safe to point at a shared dev database. If no database is reachable, integration/e2e tests are skipped automatically rather than failing.
+
+---
+
 <div align="center">
   <sub>Built as a learning project · June 2026 · Research: ACM Queue 2025 · arXiv:2602.11165 · arXiv:2511.15992 · Paunova DTE 2025 · arXiv:2411.15594 · arXiv:2501.18243</sub>
 </div>
