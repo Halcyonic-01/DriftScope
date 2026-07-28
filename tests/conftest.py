@@ -97,8 +97,17 @@ def db_session(db_engine):
 
 
 @pytest.fixture()
-def client(db_session):
-    """FastAPI TestClient with DB access routed through the isolated test session."""
+def client(db_session, monkeypatch):
+    """FastAPI TestClient with DB access routed through the isolated test session.
+
+    Also forces API key auth off by default, regardless of whatever
+    API_KEY happens to be set in the developer's real .env — tests that
+    specifically want auth enabled (see tests/integration/test_api_auth.py)
+    set settings.api_key back to a real value via their own monkeypatch,
+    which takes effect since the dependency reads settings.api_key live on
+    every request rather than caching it at app startup.
+    """
+    monkeypatch.setattr(settings, "api_key", "")
 
     def _override_get_db_session():
         yield db_session
