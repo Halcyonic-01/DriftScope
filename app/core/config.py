@@ -5,12 +5,18 @@ Central settings — reads from .env file automatically.
 Uses pydantic-settings so every variable is type-checked at startup.
 """
 
+from typing import Any
+
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     # ── Database ───────────────────────────────────────────────────────
-    database_url: str
+    # min_length=1 so a blank DATABASE_URL (e.g. a CI secret that isn't
+    # configured) fails immediately with a clear config error, instead of
+    # sailing through as "" and blowing up later inside SQLAlchemy.
+    database_url: str = Field(min_length=1)
 
     # ── LLM ───────────────────────────────────────────────────────────
     gemini_api_key: str = ""
@@ -46,6 +52,48 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_env_vars_fall_back_to_defaults(cls, data: Any) -> Any:
+        """
+        Treat a blank env var as "not set" for any field that has a default.
+
+        CI runners and orchestrators routinely define a variable as an empty
+        string when the underlying secret is missing — GitHub Actions does
+        exactly this for `SMTP_PORT: ${{ secrets.SMTP_PORT }}` when
+        SMTP_PORT isn't configured. Without this, pydantic tries to parse
+        "" as an int and the whole app fails at import time, because
+        `settings = Settings()` runs at module scope.
+
+        Fields whose default is already "" (api_key, gemini_api_key, and
+        the smtp_user/smtp_password credentials) are unaffected — they end
+        up as "" either way, so the "empty means disabled" sentinel that
+        send_configured_email_alert() and require_api_key() rely on still
+        behaves identically.
+
+        Required fields with no default (database_url) are deliberately left
+        alone, so a blank DATABASE_URL still fails loudly rather than being
+        quietly swallowed — see the min_length=1 constraint on that field.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        optional_fields = {
+            name.lower()
+            for name, field in cls.model_fields.items()
+            if not field.is_required()
+        }
+
+        return {
+            key: value
+            for key, value in data.items()
+            if not (
+                isinstance(value, str)
+                and not value.strip()
+                and str(key).lower() in optional_fields
+            )
+        }
 
 
 # Single shared instance — import this everywhere
