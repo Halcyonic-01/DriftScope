@@ -25,7 +25,11 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          # An unset secret expands to "", which would otherwise override
+          # the sensible defaults in app/core/config.py. Config now treats
+          # blank as "unset", but keep these explicit fallbacks so the
+          # intent is visible here too — same pattern as docker-compose.yml.
+          SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
