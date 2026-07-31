@@ -14,6 +14,7 @@ HOW GEMINI WORKS:
 from __future__ import annotations
 
 import logging
+import time
 
 from google.api_core import exceptions as google_exceptions
 import google.generativeai as genai
@@ -77,21 +78,23 @@ class GeminiClient(LLMClient):
             generation_config["response_mime_type"] = response_mime_type
 
         try:
-            with track_llm_call("gemini"):
-                response = self._generate_with_truncation_retry(
-                    prompt=prompt,
-                    generation_config=generation_config,
-                )
+            response = self._generate_with_rate_limit_retry(
+                prompt=prompt,
+                generation_config=generation_config,
+            )
         except google_exceptions.ResourceExhausted as exc:
+            wait = _retry_after_seconds(exc)
             raise LLMProviderError(
                 (
-                    "Gemini quota or rate limit was exhausted for this API key/project. "
-                    "Use provider='mock' for local testing, wait for quota reset, or "
-                    "enable/request quota for the Gemini API project."
+                    "Gemini rate limit or quota still exhausted after "
+                    f"{settings.gemini_max_retries} attempts. Free-tier limits are "
+                    "per-minute, and one eval case is a burst of calls (a generation "
+                    "plus one judge call per rule). Reduce the golden-case set, raise "
+                    "--delay, or use provider='mock' for local testing."
                 ),
                 provider="gemini",
                 status_code=503,
-                retry_after_seconds=_retry_after_seconds(exc),
+                retry_after_seconds=wait,
             ) from exc
         except google_exceptions.NotFound as exc:
             # Google retires model IDs for new API keys. The raw 404 doesn't
@@ -150,6 +153,47 @@ class GeminiClient(LLMClient):
             model=self._model_name,
             tokens_used=tokens_used,
         )
+
+    def _generate_with_rate_limit_retry(
+        self,
+        prompt: str,
+        generation_config: dict,
+    ):
+        """
+        Retry on 429 using the delay the API itself supplies.
+
+        Spacing calls with a fixed sleep cannot solve this: a single case
+        issues a generation call plus one judge call per rule, all
+        back-to-back, so the burst breaches a per-minute limit no matter
+        how far apart the cases are. Google returns a retry_delay on the
+        429 — honouring it is what actually lets a run complete.
+        """
+        last_exc: Exception | None = None
+
+        for attempt in range(1, settings.gemini_max_retries + 1):
+            try:
+                with track_llm_call("gemini"):
+                    return self._generate_with_truncation_retry(
+                        prompt=prompt,
+                        generation_config=generation_config,
+                    )
+            except google_exceptions.ResourceExhausted as exc:
+                last_exc = exc
+                if attempt >= settings.gemini_max_retries:
+                    break
+
+                # Prefer the server's own retry_delay; fall back to
+                # exponential backoff when it isn't supplied.
+                wait = _retry_after_seconds(exc) or (2 ** attempt)
+                wait = min(wait, settings.gemini_max_retry_wait_seconds)
+                logger.warning(
+                    "Gemini rate limited (attempt %d/%d). Waiting %ss before retry.",
+                    attempt, settings.gemini_max_retries, wait,
+                )
+                time.sleep(wait)
+
+        assert last_exc is not None
+        raise last_exc
 
     def _generate_with_truncation_retry(
         self,
