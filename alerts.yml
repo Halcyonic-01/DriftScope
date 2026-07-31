@@ -1,0 +1,107 @@
+groups:
+  - name: driftscope-model-quality
+    rules:
+      - alert: DriftScopeQualityDrift
+        # The Mann-Whitney detector already applies statistical AND
+        # practical significance (p < 0.05 and Cohen's d > 0.1), so a
+        # sustained 1 here is a real regression, not noise.
+        expr: driftscope_drift_detected == 1
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Quality drift detected for {{ $labels.model_version }}"
+          description: >-
+            The last 24h of composite scores are significantly worse than the
+            7-day baseline. Check GET /drift/{{ $labels.model_version }} for the
+            p-value and effect size.
+
+      - alert: DriftScopeCanaryCentroidShift
+        expr: driftscope_canary_centroid_drift > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Canary centroid shifted for provider {{ $labels.provider }}"
+          description: >-
+            Embedding centroid moved more than the 0.05 threshold, which is the
+            signal for a silent provider-side model update.
+
+      - alert: DriftScopeLowQualityScore
+        expr: driftscope_quality_score < 0.6
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Composite quality score is low for {{ $labels.model_version }}"
+          description: "24h mean composite score is {{ $value | printf \"%.3f\" }}."
+
+  - name: driftscope-monitoring-health
+    # These guard the monitoring itself. Without them a dead eval job or a
+    # failing provider looks exactly like "everything is fine" -- the
+    # quality gauges simply stop changing.
+    rules:
+      - alert: DriftScopeEvalsStopped
+        # Scheduled evals run twice daily; 26h without a result means at
+        # least one run was missed entirely.
+        expr: time() - driftscope_eval_last_run_timestamp_seconds > 26 * 3600
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No eval results for {{ $labels.model_version }} in over 26h"
+          description: >-
+            The scheduled eval job has not recorded a result. Quality gauges are
+            going stale and drift detection will fall back to insufficient_data.
+
+      - alert: DriftScopeCanaryStopped
+        # Canary is nightly; 48h without a snapshot means it is broken.
+        expr: time() - driftscope_canary_last_run_timestamp_seconds > 48 * 3600
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Canary has not run for provider {{ $labels.provider }} in over 48h"
+          description: >-
+            The nightly canary is not recording centroids, so provider-side model
+            swaps would go undetected.
+
+      - alert: DriftScopeDriftDetectionBlind
+        expr: driftscope_drift_insufficient_data == 1
+        for: 6h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Not enough data to run drift detection for {{ $labels.model_version }}"
+          description: >-
+            Drift detection needs >=10 results in 24h and >=30 in the prior 7 days.
+            driftscope_drift_detected is reporting 0 because it cannot tell, not
+            because the model is healthy. Increase eval frequency.
+
+      - alert: DriftScopeLLMErrorRate
+        expr: >-
+          sum by (provider) (rate(driftscope_llm_requests_total{outcome="error"}[15m]))
+          /
+          clamp_min(sum by (provider) (rate(driftscope_llm_requests_total[15m])), 0.001)
+          > 0.2
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High LLM error rate for provider {{ $labels.provider }}"
+          description: >-
+            Over 20% of calls to {{ $labels.provider }} are failing (quota
+            exhaustion, timeouts, or safety blocks). Evals will be incomplete.
+
+      - alert: DriftScopeAPIErrors
+        expr: >-
+          sum(rate(driftscope_http_requests_total{status=~"5.."}[10m]))
+          /
+          clamp_min(sum(rate(driftscope_http_requests_total[10m])), 0.001)
+          > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DriftScope API is returning 5xx responses"
+          description: "Over 5% of HTTP requests are failing."

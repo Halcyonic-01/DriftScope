@@ -20,6 +20,7 @@ import google.generativeai as genai
 from google.generativeai.types import GenerationConfig
 
 from app.core.config import settings
+from app.core.instrumentation import track_llm_call
 from app.core.llm.base import LLMClient, LLMProviderError, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -76,10 +77,11 @@ class GeminiClient(LLMClient):
             generation_config["response_mime_type"] = response_mime_type
 
         try:
-            response = self._generate_with_truncation_retry(
-                prompt=prompt,
-                generation_config=generation_config,
-            )
+            with track_llm_call("gemini"):
+                response = self._generate_with_truncation_retry(
+                    prompt=prompt,
+                    generation_config=generation_config,
+                )
         except google_exceptions.ResourceExhausted as exc:
             raise LLMProviderError(
                 (

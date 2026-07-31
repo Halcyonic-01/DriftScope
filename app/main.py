@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from sqlalchemy import text
 
 from app.core.config import settings
+from app.core.instrumentation import PrometheusMiddleware
 from app.db.session import engine
 
 logging.basicConfig(
@@ -70,6 +71,10 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+# Count and time every request, so service health is visible on the
+# dashboard alongside model quality.
+app.add_middleware(PrometheusMiddleware)
 
 # ── Register Routers ──────────────────────────────────────────────────────────
 # Import here (not at top) to avoid circular imports at collection time

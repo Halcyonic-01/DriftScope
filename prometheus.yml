@@ -1,5 +1,12 @@
 global:
   scrape_interval: 15s
+  evaluation_interval: 30s
+
+# Alert definitions live in alerts.yml. Firing alerts show up at
+# http://localhost:9090/alerts. Routing them onward to email/Slack
+# additionally requires an Alertmanager service.
+rule_files:
+  - /etc/prometheus/alerts.yml
 
 scrape_configs:
   - job_name: driftscope-api

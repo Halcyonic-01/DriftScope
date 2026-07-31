@@ -21,6 +21,7 @@ import logging
 import httpx
 
 from app.core.config import settings
+from app.core.instrumentation import track_llm_call
 from app.core.llm.base import LLMClient, LLMProviderError, LLMResponse
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,9 @@ class OllamaClient(LLMClient):
 
         try:
             # httpx is a modern HTTP client — similar to requests but async-capable
-            with httpx.Client(timeout=settings.ollama_request_timeout_seconds) as client:
+            with track_llm_call("ollama"), httpx.Client(
+                timeout=settings.ollama_request_timeout_seconds
+            ) as client:
                 response = client.post(
                     f"{self._base_url}/api/generate",
                     json=payload,

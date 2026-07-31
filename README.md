@@ -879,6 +879,39 @@ curl http://localhost:8000/cases -H "X-API-Key: your-secret-here"
 
 ---
 
+## 📡 Keeping Monitoring Alive
+
+DriftScope only shows data if evals actually run. The `/metrics` gauges average over a rolling **24-hour** window, and drift detection needs **≥10 results in 24h plus ≥30 in the prior 7 days**. If nothing runs on a schedule, the dashboard goes blank and drift detection reports `insufficient_data` forever.
+
+`.github/workflows/monitor.yml` runs the golden suite twice daily (03:00 and 15:00 UTC) to keep the window populated. Run it by hand with:
+
+```bash
+python scripts/run_monitor.py --provider gemini --model-version gemini-2.5-flash
+```
+
+### Metrics that guard the monitoring itself
+
+Quality gauges alone can't tell "the model is fine" from "the eval job died". These close that gap:
+
+| Metric | Answers |
+|---|---|
+| `driftscope_eval_last_run_timestamp_seconds` | When did evals last run? (stale = job is dead) |
+| `driftscope_canary_last_run_timestamp_seconds` | When did the canary last run? |
+| `driftscope_eval_runs_total` | How many results landed in the last 24h? |
+| `driftscope_drift_insufficient_data` | Is `drift_detected=0` real, or are we blind? |
+| `driftscope_llm_requests_total{outcome}` | Is the provider erroring or quota-blocked? |
+| `driftscope_http_requests_total{status}` | Is the API itself healthy? |
+
+> `driftscope_drift_detected=0` on its own is ambiguous — it means both "no drift" **and** "not enough data to tell". Always read it alongside `driftscope_drift_insufficient_data`.
+
+### Alerting
+
+`alerts.yml` ships 8 Prometheus rules covering quality drift, canary centroid shift, stalled eval/canary jobs, blind drift detection, and LLM/API error rates. Firing alerts appear at **http://localhost:9090/alerts**.
+
+Prometheus only *evaluates* alerts — to route them to email or Slack you additionally need an [Alertmanager](https://prometheus.io/docs/alerting/alertmanager/) service. The canary's own SMTP alert (Phase 4) is independent and already works.
+
+---
+
 ## 🧪 Running Tests
 
 Tests live in three tiers under `tests/`:
