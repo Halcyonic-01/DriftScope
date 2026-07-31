@@ -1,0 +1,49 @@
+name: DriftScope Scheduled Eval
+
+# The gauges in /metrics average over a rolling 24h window, and drift
+# detection needs >=10 results in 24h plus >=30 in the preceding 7 days.
+# Running twice a day against ~21 golden cases yields ~42/day, which
+# clears both thresholds with margin. Offset from the 02:00 canary so the
+# two jobs don't compete for provider quota.
+on:
+  schedule:
+    - cron: "0 3,15 * * *"
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "LLM provider to evaluate"
+        default: "gemini"
+      model_version:
+        description: "Label to record results under"
+        default: "gemini-2.5-flash"
+
+jobs:
+  eval:
+    name: Run Golden Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: sentence-transformers-all-MiniLM-L6-v2
+
+      - name: Run golden suite
+        run: |
+          python scripts/run_monitor.py \
+            --provider "${{ inputs.provider || 'gemini' }}" \
+            --model-version "${{ inputs.model_version || 'gemini-2.5-flash' }}"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
