@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     gemini_max_output_tokens: int = 4096
     gemini_retry_max_output_tokens: int = 8192
     gemini_request_timeout_seconds: int = 60
+    # Rate-limit retries. A single eval case is a burst of calls (one
+    # generation plus one judge call per rule), so free-tier limits are
+    # hit in bursts no fixed inter-case delay can prevent. Retrying with
+    # the server-supplied backoff is what actually makes runs survive.
+    gemini_max_retries: int = 4
+    gemini_max_retry_wait_seconds: int = 90
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3"
     ollama_request_timeout_seconds: int = 120
