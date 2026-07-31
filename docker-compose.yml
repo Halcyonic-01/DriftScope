@@ -4,7 +4,16 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://drift:drift@db:5432/driftscope
+      # Defaults to the bundled `db` service. Set DRIFTSCOPE_DB_URL in
+      # .env to point the API (and therefore Grafana) at a hosted
+      # database instead — e.g. the same Neon instance the scheduled eval
+      # workflow writes to, so the dashboard reflects that data.
+      #
+      # Deliberately NOT named DATABASE_URL: compose auto-loads .env, and
+      # DATABASE_URL there is the value used by host-side tooling
+      # (alembic, seed, run_monitor). That's usually a localhost URL,
+      # which inside a container resolves to the container itself.
+      DATABASE_URL: ${DRIFTSCOPE_DB_URL:-postgresql://drift:drift@db:5432/driftscope}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_REQUEST_TIMEOUT_SECONDS: ${GEMINI_REQUEST_TIMEOUT_SECONDS:-60}
       ALERT_EMAIL: ${ALERT_EMAIL:-}
