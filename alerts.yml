@@ -78,7 +78,24 @@ groups:
             driftscope_drift_detected is reporting 0 because it cannot tell, not
             because the model is healthy. Increase eval frequency.
 
+      - alert: DriftScopeJobFailingCases
+        # Catches what the in-process LLM counters cannot: run_monitor.py
+        # executes on a separate machine, and a failed case writes no
+        # eval_results row, so a fully-failed run leaves no other trace.
+        expr: driftscope_job_failure_ratio > 0.2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} job is failing cases for provider {{ $labels.provider }}"
+          description: >-
+            {{ $value | humanizePercentage }} of cases failed in the most recent
+            run. Common causes: a retired GEMINI_MODEL, or exhausted free-tier
+            quota. Check driftscope_job_cases_failed and the job logs.
+
       - alert: DriftScopeLLMErrorRate
+        # NOTE: in-process only — covers LLM calls made through the API.
+        # Scheduled runs are covered by DriftScopeJobFailingCases above.
         expr: >-
           sum by (provider) (rate(driftscope_llm_requests_total{outcome="error"}[15m]))
           /

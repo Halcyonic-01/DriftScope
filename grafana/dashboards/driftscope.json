@@ -84,11 +84,16 @@
               {
                 "color": "red",
                 "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 2
               }
             ]
           },
           "mappings": [
             {
+              "type": "value",
               "options": {
                 "0": {
                   "color": "green",
@@ -99,9 +104,18 @@
                   "color": "red",
                   "index": 1,
                   "text": "DRIFT DETECTED"
+                },
+                "2": {
+                  "color": "orange",
+                  "index": 2,
+                  "text": "UNKNOWN - no data yet"
+                },
+                "3": {
+                  "color": "orange",
+                  "index": 3,
+                  "text": "UNKNOWN - no data yet"
                 }
-              },
-              "type": "value"
+              }
             }
           ]
         },
@@ -128,12 +142,12 @@
         },
         "textMode": "auto",
         "text": {
-          "valueSize": 32
+          "valueSize": 26
         }
       },
       "targets": [
         {
-          "expr": "driftscope_drift_detected",
+          "expr": "driftscope_drift_detected + 2 * driftscope_drift_insufficient_data",
           "legendFormat": "{{model_version}}",
           "refId": "A"
         }
@@ -504,26 +518,14 @@
               {
                 "color": "orange",
                 "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
               }
             ]
           },
-          "mappings": [
-            {
-              "options": {
-                "0": {
-                  "color": "green",
-                  "index": 0,
-                  "text": "Has Data"
-                },
-                "1": {
-                  "color": "orange",
-                  "index": 1,
-                  "text": "BLIND - insufficient data"
-                }
-              },
-              "type": "value"
-            }
-          ]
+          "mappings": []
         },
         "overrides": []
       },
@@ -550,12 +552,12 @@
       },
       "targets": [
         {
-          "expr": "driftscope_drift_insufficient_data",
-          "legendFormat": "{{model_version}}",
+          "expr": "driftscope_job_cases_failed",
+          "legendFormat": "{{job}}/{{provider}}",
           "refId": "A"
         }
       ],
-      "title": "Drift Detection Coverage",
+      "title": "Scheduled Job Failures",
       "type": "stat"
     },
     {
@@ -680,6 +682,6 @@
   "timezone": "browser",
   "title": "DriftScope Quality",
   "uid": "driftscope-quality",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

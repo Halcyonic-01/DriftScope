@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from app.core.eval_service import run_eval
 from app.db.models.golden_case import GoldenCase
+from app.db.models.job_run import JobRun
 from app.db.session import get_db
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -57,12 +58,14 @@ def main() -> None:
     parser.add_argument(
         "--delay",
         type=float,
-        default=4.0,
+        default=16.0,
         help=(
-            "Seconds to wait between cases (default 4.0). The Gemini free tier "
-            "allows ~15 requests/minute and each case can issue more than one "
-            "call once the judge fires, so firing the suite back-to-back "
-            "triggers 429s. Pass 0 to disable."
+            "Seconds to wait between cases (default 16.0). A case is not one "
+            "API call: it's 1 generation plus one judge call PER RULE "
+            "(topic coverage + each safety rule), so the seeded suite is "
+            "3-5 calls per case, ~80 for a full run. The Gemini free tier "
+            "allows ~15 requests/minute, so a full run needs >5 minutes of "
+            "pacing to avoid 429s. Pass 0 to disable."
         ),
     )
     args = parser.parse_args()
@@ -70,6 +73,7 @@ def main() -> None:
     model_version = args.model_version or args.provider
     succeeded = 0
     failed = 0
+    last_error: str | None = None
     scores: list[float] = []
 
     with get_db() as db:
@@ -116,7 +120,24 @@ def main() -> None:
             except Exception as exc:
                 db.rollback()
                 failed += 1
+                last_error = str(exc)[:500]
                 logger.error("[%d/%d] case=%s failed: %s", index, len(cases), case.case_id, exc)
+
+        # Always record the run, especially when everything failed --
+        # that's precisely the case that otherwise leaves no trace at all
+        # and looks identical to "the job never ran".
+        db.add(
+            JobRun(
+                job="monitor",
+                provider=args.provider,
+                model_version=model_version,
+                cases_total=succeeded + failed,
+                cases_succeeded=succeeded,
+                cases_failed=failed,
+                last_error=last_error,
+            )
+        )
+        db.commit()
 
     total = succeeded + failed
     summary = {

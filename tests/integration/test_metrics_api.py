@@ -108,6 +108,59 @@ def test_metrics_includes_canary_freshness(client, db_session):
     )
 
 
+def test_metrics_exposes_job_run_outcomes(client, db_session):
+    """
+    Scheduled runs happen in another process, so the in-memory LLM
+    counters never see them. These DB-derived metrics are what make a
+    failing scheduled job visible.
+    """
+    from app.db.models.job_run import JobRun
+
+    db_session.add(
+        JobRun(
+            job="monitor",
+            provider="metrics-prov",
+            model_version="v1",
+            cases_total=10,
+            cases_succeeded=6,
+            cases_failed=4,
+            last_error="quota exhausted",
+        )
+    )
+    db_session.flush()
+
+    text = client.get("/metrics").text
+
+    labels = 'job="monitor",provider="metrics-prov"'
+    assert f"driftscope_job_cases_failed{{{labels}}} 4" in text
+    assert f"driftscope_job_cases_succeeded{{{labels}}} 6" in text
+    assert f"driftscope_job_failure_ratio{{{labels}}} 0.400000" in text
+    assert re.search(
+        r'driftscope_job_last_run_timestamp_seconds\{job="monitor",provider="metrics-prov"\} \d{10}',
+        text,
+    )
+
+
+def test_metrics_reports_only_the_latest_job_run(client, db_session):
+    from app.db.models.job_run import JobRun
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all([
+        JobRun(job="monitor", provider="latest-prov", cases_total=5,
+               cases_succeeded=0, cases_failed=5, finished_at=now - timedelta(hours=2)),
+        JobRun(job="monitor", provider="latest-prov", cases_total=5,
+               cases_succeeded=5, cases_failed=0, finished_at=now),
+    ])
+    db_session.flush()
+
+    text = client.get("/metrics").text
+
+    labels = 'job="monitor",provider="latest-prov"'
+    assert f"driftscope_job_cases_failed{{{labels}}} 0" in text
+    assert f"driftscope_job_cases_succeeded{{{labels}}} 5" in text
+
+
 def test_metrics_includes_process_http_metrics(client):
     """The in-memory HTTP counters must be merged into the same output."""
     client.get("/health")
