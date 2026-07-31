@@ -20,6 +20,13 @@ class Settings(BaseSettings):
 
     # ── LLM ───────────────────────────────────────────────────────────
     gemini_api_key: str = ""
+    # Pin a concrete model, not a "-latest" alias. DriftScope exists to
+    # detect when a provider silently changes the model behind a fixed
+    # name; an alias that intentionally moves would manufacture drift
+    # signals and make the canary meaningless.
+    # Google retires model IDs for new API keys — if calls start 404ing,
+    # set GEMINI_MODEL to a current one (list them with genai.list_models).
+    gemini_model: str = "gemini-3.6-flash"
     gemini_max_output_tokens: int = 4096
     gemini_retry_max_output_tokens: int = 8192
     gemini_request_timeout_seconds: int = 60
@@ -51,6 +58,12 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # .env is shared with docker compose, which reads the same file and
+        # needs variables the app itself doesn't define (DRIFTSCOPE_DB_URL,
+        # for one). pydantic-settings forbids unknown keys by default, so
+        # without this a compose-only variable crashes every entrypoint that
+        # imports settings — API, scripts, and tests alike.
+        extra="ignore",
     )
 
     @model_validator(mode="before")

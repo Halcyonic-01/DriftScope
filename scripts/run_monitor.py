@@ -11,7 +11,7 @@ Unlike scripts/run_eval.py (the PR quality gate, which runs against the
 deterministic mock provider and compares to a committed baseline), this
 hits the real provider so the recorded scores reflect live model quality.
 
-    python scripts/run_monitor.py --provider gemini --model-version gemini-2.5-flash
+    python scripts/run_monitor.py --provider gemini --model-version gemini-3.6-flash
 
 Each case is evaluated independently: one provider error (a quota block,
 a safety refusal) is logged and skipped rather than aborting the run and
@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -53,6 +54,17 @@ def main() -> None:
         default=0.5,
         help="Exit non-zero if this fraction or more of cases fail (default 0.5).",
     )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=4.0,
+        help=(
+            "Seconds to wait between cases (default 4.0). The Gemini free tier "
+            "allows ~15 requests/minute and each case can issue more than one "
+            "call once the judge fires, so firing the suite back-to-back "
+            "triggers 429s. Pass 0 to disable."
+        ),
+    )
     args = parser.parse_args()
 
     model_version = args.model_version or args.provider
@@ -80,6 +92,8 @@ def main() -> None:
         )
 
         for index, case in enumerate(cases, start=1):
+            if args.delay and index > 1:
+                time.sleep(args.delay)
             try:
                 result = run_eval(
                     db=db,

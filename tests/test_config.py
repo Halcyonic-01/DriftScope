@@ -124,3 +124,30 @@ def test_missing_database_url_fails_loudly(clean_env):
 
     with pytest.raises(ValidationError, match="[Ff]ield required"):
         _settings()
+
+
+def test_unknown_env_vars_are_ignored(clean_env):
+    """
+    .env is shared with docker compose, which needs variables the app
+    doesn't define (e.g. DRIFTSCOPE_DB_URL). pydantic-settings forbids
+    unknown keys by default, which crashed every entrypoint that imports
+    settings as soon as such a variable was added.
+    """
+    clean_env.setenv("DRIFTSCOPE_DB_URL", "postgresql://compose-only@host/db")
+    clean_env.setenv("SOME_OTHER_TOOL_VAR", "whatever")
+
+    settings = _settings()
+
+    assert settings.database_url == VALID_DB_URL
+
+
+def test_gemini_model_is_configurable(clean_env):
+    clean_env.setenv("GEMINI_MODEL", "gemini-9.9-flash")
+    assert _settings().gemini_model == "gemini-9.9-flash"
+
+
+def test_gemini_model_defaults_to_a_pinned_version(clean_env):
+    """Not a '-latest' alias: a moving target would manufacture drift."""
+    model = _settings().gemini_model
+    assert model
+    assert "latest" not in model
