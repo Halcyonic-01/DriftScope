@@ -95,6 +95,40 @@ def test_monitor_isolates_per_case_failures(patched_get_db, one_case, monkeypatc
     assert '"cases_failed": 1' in out
 
 
+def test_monitor_records_a_job_run_on_success(patched_get_db, one_case, monkeypatch):
+    from app.db.models.job_run import JobRun
+
+    _run(monkeypatch, ["--provider", "mock", "--domain", "monitor-test-domain", "--delay", "0"])
+
+    run = patched_get_db.query(JobRun).filter(JobRun.provider == "mock").one()
+    assert (run.job, run.cases_succeeded, run.cases_failed) == ("monitor", 1, 0)
+    assert run.last_error is None
+
+
+def test_monitor_records_a_job_run_even_when_everything_fails(
+    patched_get_db, one_case, monkeypatch
+):
+    """
+    The whole point of job_runs: a failed case writes no eval_results row,
+    so without this a totally-failed run is indistinguishable from a run
+    that never happened.
+    """
+    from app.db.models.job_run import JobRun
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("Gemini quota exhausted")
+
+    monkeypatch.setattr(run_monitor, "run_eval", boom)
+
+    with pytest.raises(SystemExit):
+        _run(monkeypatch, ["--provider", "mock", "--domain", "monitor-test-domain", "--delay", "0"])
+
+    run = patched_get_db.query(JobRun).filter(JobRun.provider == "mock").one()
+    assert run.cases_succeeded == 0
+    assert run.cases_failed == 1
+    assert "quota exhausted" in run.last_error
+
+
 def test_monitor_exits_when_no_cases_match(patched_get_db, monkeypatch):
     with pytest.raises(SystemExit, match="No golden cases found"):
         _run(monkeypatch, ["--provider", "mock", "--domain", "no-such-domain-xyz"])

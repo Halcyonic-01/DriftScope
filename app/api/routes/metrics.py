@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.core.drift import detect_drift_from_scores
 from app.db.models.centroid_history import CentroidHistory
 from app.db.models.eval_result import EvalResult
+from app.db.models.job_run import JobRun
 from app.db.session import get_db_session
 
 router = APIRouter(tags=["Metrics"])
@@ -62,6 +63,14 @@ def metrics(db: Session = Depends(get_db_session)):
         "# TYPE driftscope_canary_centroid_drift gauge",
         "# HELP driftscope_canary_last_run_timestamp_seconds Unix time of the most recent canary snapshot.",
         "# TYPE driftscope_canary_last_run_timestamp_seconds gauge",
+        "# HELP driftscope_job_cases_failed Cases that failed in the most recent job run.",
+        "# TYPE driftscope_job_cases_failed gauge",
+        "# HELP driftscope_job_cases_succeeded Cases that succeeded in the most recent job run.",
+        "# TYPE driftscope_job_cases_succeeded gauge",
+        "# HELP driftscope_job_failure_ratio Fraction of cases that failed in the most recent job run.",
+        "# TYPE driftscope_job_failure_ratio gauge",
+        "# HELP driftscope_job_last_run_timestamp_seconds Unix time the most recent job run finished.",
+        "# TYPE driftscope_job_last_run_timestamp_seconds gauge",
     ]
 
     # ── Quality + drift, in two queries total ────────────────────────────
@@ -175,8 +184,48 @@ def metrics(db: Session = Depends(get_db_session)):
             f"{_epoch(recorded_at):.0f}"
         )
 
+    # ── Scheduled job outcomes ───────────────────────────────────────────
+    #
+    # These come from the database rather than the in-memory counters
+    # because run_monitor.py executes in a separate process (a laptop, or
+    # a GitHub Actions runner) and never touches this process's registry.
+    # Without them, a run where every case failed writes no eval_results
+    # and is indistinguishable from a run that never happened.
+    latest_jobs = (
+        db.query(
+            JobRun.job,
+            JobRun.provider,
+            func.max(JobRun.finished_at).label("latest_finished_at"),
+        )
+        .group_by(JobRun.job, JobRun.provider)
+        .subquery()
+    )
+    job_rows = (
+        db.query(JobRun)
+        .join(
+            latest_jobs,
+            (JobRun.job == latest_jobs.c.job)
+            & (JobRun.provider == latest_jobs.c.provider)
+            & (JobRun.finished_at == latest_jobs.c.latest_finished_at),
+        )
+        .all()
+    )
+
+    for run in job_rows:
+        labels = f'job="{_label(run.job)}",provider="{_label(run.provider)}"'
+        lines.append(f"driftscope_job_cases_failed{{{labels}}} {run.cases_failed}")
+        lines.append(f"driftscope_job_cases_succeeded{{{labels}}} {run.cases_succeeded}")
+        ratio = (run.cases_failed / run.cases_total) if run.cases_total else 0.0
+        lines.append(f"driftscope_job_failure_ratio{{{labels}}} {ratio:.6f}")
+        lines.append(
+            f"driftscope_job_last_run_timestamp_seconds{{{labels}}} "
+            f"{_epoch(run.finished_at):.0f}"
+        )
+
     body = "\n".join(lines) + "\n"
-    # Append in-memory HTTP/LLM counters from the default registry.
+    # Append in-memory HTTP/LLM counters from the default registry. These
+    # only cover calls made inside this process (i.e. via the API), which
+    # is why the DB-derived job metrics above exist for scheduled runs.
     body += generate_latest().decode("utf-8")
 
     return Response(body, media_type=CONTENT_TYPE_LATEST)
