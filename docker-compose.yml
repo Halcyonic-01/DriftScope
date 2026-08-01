@@ -15,6 +15,11 @@ services:
       # which inside a container resolves to the container itself.
       DATABASE_URL: ${DRIFTSCOPE_DB_URL:-postgresql://drift:drift@db:5432/driftscope}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Without this, GEMINI_MODEL in .env is silently ignored by the
+      # container and the API uses whatever default was baked into the
+      # image at build time — which stays stale until the image is
+      # rebuilt. Blank falls back to the code default (see config.py).
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
       GEMINI_REQUEST_TIMEOUT_SECONDS: ${GEMINI_REQUEST_TIMEOUT_SECONDS:-60}
       ALERT_EMAIL: ${ALERT_EMAIL:-}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
