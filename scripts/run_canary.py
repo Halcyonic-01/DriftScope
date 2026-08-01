@@ -14,7 +14,11 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.core.canary import DEFAULT_CANARY_THRESHOLD, run_canary
+from app.core.canary import (
+    DEFAULT_CANARY_DELAY_SECONDS,
+    DEFAULT_CANARY_THRESHOLD,
+    run_canary,
+)
 from app.db.session import get_db
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
@@ -22,11 +26,24 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--providers", nargs="+", default=["gemini", "ollama"])
+    # Only gemini by default: ollama needs a local `ollama serve` and a
+    # pulled model, so including it by default made the script fail for
+    # anyone who hasn't set that up. Add it explicitly when you have.
+    parser.add_argument("--providers", nargs="+", default=["gemini"])
     parser.add_argument("--case-ids", nargs="*", default=None)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--threshold", type=float, default=DEFAULT_CANARY_THRESHOLD)
     parser.add_argument("--baseline-days", type=int, default=7)
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=DEFAULT_CANARY_DELAY_SECONDS,
+        help=(
+            "Seconds between cases (default %(default)s). The canary makes one\n"
+            "call per case with no natural gap, so an unpaced 20-case run\n"
+            "breaches a 15/min free-tier limit immediately. Pass 0 to disable."
+        ),
+    )
     parser.add_argument("--output-jsonl", default="canary_log.jsonl")
     args = parser.parse_args()
 
@@ -50,6 +67,7 @@ def main() -> None:
                     alert_threshold=args.threshold,
                     baseline_days=args.baseline_days,
                     case_limit=args.limit,
+                    delay_seconds=args.delay,
                 )
             record = {
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
