@@ -26,7 +26,13 @@ class Settings(BaseSettings):
     # signals and make the canary meaningless.
     # Google retires model IDs for new API keys — if calls start 404ing,
     # set GEMINI_MODEL to a current one (list them with genai.list_models).
-    gemini_model: str = "gemini-3.6-flash"
+    #
+    # A "Lite" model is chosen deliberately: on the free tier the standard
+    # Flash models allow only 20 requests/day, which caps a run at 10 cases
+    # and cannot sustain continuous monitoring. Flash Lite allows 500/day
+    # and 15/min — 25x the budget — and still judges accurately, correctly
+    # failing responses that violate an explicit safety rule.
+    gemini_model: str = "gemini-3.5-flash-lite"
     gemini_max_output_tokens: int = 4096
     gemini_retry_max_output_tokens: int = 8192
     gemini_request_timeout_seconds: int = 60
