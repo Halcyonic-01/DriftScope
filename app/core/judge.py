@@ -71,6 +71,44 @@ Respond with exactly: {{"pass": true/false, "reason": "one sentence explanation"
     return _parse_judge_json(result.text)
 
 
+def build_batched_judge_prompt(response: str, rules: list[tuple[str, str]]) -> str:
+    """Ask for a verdict on every rule in a single call."""
+    rule_block = "\n".join(f'- id: "{label}"\n  rule: {rule}' for label, rule in rules)
+    return f"""You are a strict evaluator. Answer in JSON only.
+
+Evaluate the response below against EACH rule independently. Judge every
+rule on its own merits — a failure on one rule must not influence another.
+
+Response to evaluate:
+{response}
+
+Rules:
+{rule_block}
+
+Respond with exactly:
+{{"results": [{{"id": "<rule id>", "pass": true/false, "reason": "one sentence explanation"}}]}}
+Include exactly one entry for every rule id listed above, and use those ids verbatim."""
+
+
+def judge_response_batch(
+    client: LLMClient,
+    response: str,
+    rules: list[tuple[str, str]],
+) -> list[tuple[str, JudgeDecision]]:
+    """
+    Judge every rule in one request.
+
+    One call per rule was the single biggest consumer of provider quota:
+    a case with topics plus two safety rules cost three judge calls on top
+    of the generation call. Batching cuts that to one without changing what
+    gets evaluated — each rule still receives its own pass/fail and reason.
+    """
+    prompt = build_batched_judge_prompt(response, rules)
+    result = client.complete(prompt, response_mime_type="application/json")
+    by_id = _parse_batched_judge_json(result.text, expected_ids=[label for label, _ in rules])
+    return [(label, by_id[label]) for label, _ in rules]
+
+
 def judge_response_against_rules(
     client: LLMClient,
     response: str,
@@ -90,10 +128,7 @@ def judge_response_against_rules(
     if not rules:
         return None, None
 
-    decisions = []
-    for label, rule in rules:
-        decision = judge_response(client, response, rule)
-        decisions.append((label, decision))
+    decisions = judge_response_batch(client, response, rules)
 
     judge_score = sum(decision.score for _, decision in decisions) / len(decisions)
     reason = " | ".join(
@@ -122,6 +157,55 @@ def composite_score(
         raise ValueError("Composite score weights must sum to a positive value.")
 
     return ((w1 * cosine) + (w2 * judge)) / total
+
+
+def _parse_batched_judge_json(
+    raw_text: str,
+    expected_ids: list[str],
+) -> dict[str, JudgeDecision]:
+    """
+    Parse a batched verdict, requiring one entry per rule.
+
+    Missing entries are an error rather than a silent skip: dropping a rule
+    would shrink the denominator of the pass rate and quietly inflate the
+    judge score, which is exactly the kind of failure a quality monitor
+    must not have.
+    """
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Judge returned invalid JSON: {raw_text}") from exc
+
+    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+        raise ValueError('Judge JSON must be an object with a "results" list.')
+
+    decisions: dict[str, JudgeDecision] = {}
+    for entry in data["results"]:
+        if not isinstance(entry, dict):
+            raise ValueError("Each judge result must be an object.")
+
+        rule_id = entry.get("id")
+        if not isinstance(rule_id, str) or rule_id not in expected_ids:
+            # Ignore ids we didn't ask about rather than failing the run;
+            # the completeness check below is what actually guards us.
+            continue
+
+        if "pass" not in entry or not isinstance(entry["pass"], bool):
+            raise ValueError(f'Judge result for "{rule_id}" needs a boolean "pass".')
+
+        reason = entry.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(f'Judge result for "{rule_id}" needs a non-empty "reason".')
+
+        decisions[rule_id] = JudgeDecision(passed=entry["pass"], reason=reason.strip())
+
+    missing = [rule_id for rule_id in expected_ids if rule_id not in decisions]
+    if missing:
+        raise ValueError(
+            f"Judge omitted verdicts for: {', '.join(missing)}. Raw response: {raw_text}"
+        )
+
+    return decisions
 
 
 def _parse_judge_json(raw_text: str) -> JudgeDecision:

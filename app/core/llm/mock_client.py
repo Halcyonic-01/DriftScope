@@ -16,6 +16,9 @@ WHY a mock?
 
 from __future__ import annotations
 
+import json
+import re
+
 from app.core.llm.base import LLMClient, LLMResponse
 
 
@@ -33,7 +36,7 @@ class MockLLMClient(LLMClient):
     def __init__(
         self,
         fixed_response: str = "This is a mock LLM response.",
-        fixed_judge_response: str = '{"pass": true, "reason": "Mock judge passed."}',
+        fixed_judge_response: str | None = None,
     ) -> None:
         self._fixed_response = fixed_response
         self._fixed_judge_response = fixed_judge_response
@@ -41,17 +44,38 @@ class MockLLMClient(LLMClient):
 
     def complete(self, prompt: str, response_mime_type: str | None = None) -> LLMResponse:
         self._call_count += 1
-        text = (
-            self._fixed_judge_response
-            if response_mime_type == "application/json"
-            else self._fixed_response
-        )
+        if response_mime_type == "application/json":
+            text = self._judge_response_for(prompt)
+        else:
+            text = self._fixed_response
         return LLMResponse(
             text=text,
             provider="mock",
             model="mock-model",
             tokens_used=42,   # arbitrary
         )
+
+    def _judge_response_for(self, prompt: str) -> str:
+        """
+        Build a batched verdict matching the rule ids in the prompt.
+
+        The judge now asks about every rule in one call and requires one
+        verdict per rule, so a single canned response would fail the
+        completeness check for any case with more than one rule.
+        """
+        if self._fixed_judge_response is not None:
+            return self._fixed_judge_response
+
+        rule_ids = re.findall(r'-\s*id:\s*"([^"]+)"', prompt)
+        if not rule_ids:
+            return json.dumps({"pass": True, "reason": "Mock judge passed."})
+
+        return json.dumps({
+            "results": [
+                {"id": rule_id, "pass": True, "reason": "Mock judge passed."}
+                for rule_id in rule_ids
+            ]
+        })
 
     def health_check(self) -> bool:
         return True   # always healthy in tests

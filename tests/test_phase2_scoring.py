@@ -97,7 +97,10 @@ def test_build_reference_text_returns_none_without_contract():
 
 
 class FakeEvalClient:
-    def __init__(self, judge_payload: str = '{"pass": true, "reason": "OK."}') -> None:
+    def __init__(
+        self,
+        judge_payload: str = '{"results": [{"id": "topics", "pass": true, "reason": "OK."}]}',
+    ) -> None:
         self.judge_payload = judge_payload
         self.calls = []
 
