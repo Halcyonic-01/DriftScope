@@ -57,6 +57,19 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      # Without this, the TSDB lives inside the container and every
+      # `docker compose down` silently destroys all metric history. The
+      # dashboard then shows "No data" until scraping refills it, and the
+      # 7-day drift baseline never accumulates.
+      - prometheus-data:/prometheus
+    command:
+      # Declaring a command overrides the image defaults, so the config
+      # and storage paths have to be repeated here.
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Comfortably longer than the 7-day baseline window drift detection
+      # compares against.
+      - --storage.tsdb.retention.time=30d
     depends_on:
       - api
 
@@ -77,3 +90,4 @@ services:
 volumes:
   postgres-data:
   grafana-data:
+  prometheus-data:
