@@ -20,7 +20,9 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run canary
-        run: python scripts/run_canary.py --providers gemini ollama
+        # Ollama is not available on GitHub runners, so listing it here made
+        # the job fail every night on a provider that can never work.
+        run: python scripts/run_canary.py --providers gemini
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

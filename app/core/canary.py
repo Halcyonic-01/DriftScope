@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CANARY_THRESHOLD = 0.05
 DEFAULT_BASELINE_DAYS = 7
+# One request per case with no gap would breach a 15/min free-tier
+# limit within seconds; 5s keeps a full 20-case run at 12/min.
+DEFAULT_CANARY_DELAY_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -64,9 +68,14 @@ def run_canary(
     alert_threshold: float = DEFAULT_CANARY_THRESHOLD,
     baseline_days: int = DEFAULT_BASELINE_DAYS,
     case_limit: int | None = None,
+    delay_seconds: float = DEFAULT_CANARY_DELAY_SECONDS,
 ) -> CanaryResult:
     """
     Run the canary prompt set against a provider and store a centroid snapshot.
+
+    delay_seconds paces the calls. The canary issues one request per case
+    with nothing between them, so an unpaced 20-case run fires 20 requests
+    in seconds and breaches a per-minute provider limit immediately.
     """
     provider = provider.lower().strip()
     cases = _load_cases(db, golden_case_ids, case_limit=case_limit)
@@ -74,6 +83,8 @@ def run_canary(
 
     responses = []
     for index, case in enumerate(cases, start=1):
+        if delay_seconds and index > 1:
+            time.sleep(delay_seconds)
         logger.info(
             "Canary provider=%s case=%s/%s id=%s",
             provider,

@@ -125,3 +125,42 @@ def test_run_canary_honors_case_limit(monkeypatch):
     result = run_canary(db, provider="mock", case_limit=1)
 
     assert result.response_count == 1
+
+
+def test_run_canary_paces_calls_between_cases(monkeypatch):
+    """
+    The canary makes one call per case with no natural gap, so an unpaced
+    run fires every request at once and trips a per-minute provider limit.
+    """
+    cases = [
+        GoldenCase(prompt=f"Prompt {i}", expected_topics=[], safety_rules=[])
+        for i in range(3)
+    ]
+    db = FakeSession(cases=cases)
+    sleeps = []
+
+    monkeypatch.setattr(canary, "get_client", lambda provider: FakeLLM("east"))
+    monkeypatch.setattr(canary, "get_model", lambda: FakeEmbeddingModel())
+    monkeypatch.setattr(canary.time, "sleep", lambda s: sleeps.append(s))
+
+    canary.run_canary(db, provider="mock", delay_seconds=5.0)
+
+    # One gap between each pair of cases, never before the first.
+    assert sleeps == [5.0, 5.0]
+
+
+def test_run_canary_delay_can_be_disabled(monkeypatch):
+    cases = [
+        GoldenCase(prompt=f"Prompt {i}", expected_topics=[], safety_rules=[])
+        for i in range(3)
+    ]
+    db = FakeSession(cases=cases)
+    sleeps = []
+
+    monkeypatch.setattr(canary, "get_client", lambda provider: FakeLLM("east"))
+    monkeypatch.setattr(canary, "get_model", lambda: FakeEmbeddingModel())
+    monkeypatch.setattr(canary.time, "sleep", lambda s: sleeps.append(s))
+
+    canary.run_canary(db, provider="mock", delay_seconds=0)
+
+    assert sleeps == []
