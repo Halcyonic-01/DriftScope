@@ -63,3 +63,10 @@ prometheus-data/
 *.bak
 *.tmp
 .DS_Store
+
+# ── Runtime outputs ───────────────────────────────────────────
+# Written by scripts/run_canary.py and scripts/run_eval.py on every
+# run. The authoritative records live in the database (centroid_history
+# and eval_results); these files are just local convenience logs.
+canary_log.jsonl
+eval_report.json
