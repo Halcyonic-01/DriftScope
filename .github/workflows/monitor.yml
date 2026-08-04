@@ -3,11 +3,15 @@ name: DriftScope Scheduled Eval
 # The gauges in /metrics average over a rolling 24h window, and drift
 # detection needs >=10 results in 24h plus >=30 in the preceding 7 days.
 # Running twice a day against ~21 golden cases yields ~42/day, which
-# clears both thresholds with margin. Offset from the 02:00 canary so the
-# two jobs don't compete for provider quota.
+# clears both thresholds with margin. Offset from the canary so the two
+# jobs don't compete for provider quota.
+#
+# Deliberately not on the hour: GitHub's scheduled runs are best-effort
+# and the top of the hour is the most contended slot, which was delaying
+# these runs by one to three hours.
 on:
   schedule:
-    - cron: "0 3,15 * * *"
+    - cron: "17 3,15 * * *"
   workflow_dispatch:
     inputs:
       provider:

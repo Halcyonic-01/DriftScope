@@ -94,7 +94,17 @@ def run_canary(
         )
         responses.append(llm.complete(case.prompt).text)
     current_centroid = compute_centroid(responses)
-    previous_centroid = get_rolling_centroid(db, provider, baseline_days=baseline_days)
+    # Compare only against snapshots built from the same number of
+    # prompts. A centroid is the mean of its prompt set, so one computed
+    # from 5 cases and one from 20 differ because the inputs differ —
+    # averaging them together reports large "drift" that says nothing
+    # about the model.
+    previous_centroid = get_rolling_centroid(
+        db,
+        provider,
+        baseline_days=baseline_days,
+        case_count=len(responses),
+    )
     drift_score = (
         centroid_drift(current_centroid, previous_centroid)
         if previous_centroid is not None
@@ -105,6 +115,7 @@ def run_canary(
         provider=provider,
         centroid=[float(value) for value in current_centroid.tolist()],
         drift_score=round(float(drift_score), 6),
+        case_count=len(responses),
     )
     db.add(history)
     db.flush()
@@ -126,15 +137,25 @@ def get_rolling_centroid(
     db: Session,
     provider: str,
     baseline_days: int = DEFAULT_BASELINE_DAYS,
+    case_count: int | None = None,
 ) -> np.ndarray | None:
+    """
+    Mean centroid over the baseline window for a provider.
+
+    When case_count is given, only snapshots built from that many prompts
+    are included. Comparing across prompt-set sizes measures the change in
+    inputs rather than the change in the model.
+    """
     since = datetime.now(timezone.utc) - timedelta(days=baseline_days)
-    rows = (
+    query = (
         db.query(CentroidHistory.centroid)
         .filter(CentroidHistory.provider == provider)
         .filter(CentroidHistory.recorded_at >= since)
-        .order_by(CentroidHistory.recorded_at.desc())
-        .all()
     )
+    if case_count is not None:
+        query = query.filter(CentroidHistory.case_count == case_count)
+
+    rows = query.order_by(CentroidHistory.recorded_at.desc()).all()
     if not rows:
         return None
     return np.asarray([row[0] for row in rows], dtype=float).mean(axis=0)

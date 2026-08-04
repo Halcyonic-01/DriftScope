@@ -83,49 +83,60 @@ def main() -> None:
         query = query.order_by(GoldenCase.created_at.asc())
         if args.limit is not None:
             query = query.limit(args.limit)
-        cases = query.all()
+        # Detach the ids now; each case is re-loaded in its own session
+        # below, so nothing here outlives this connection.
+        case_ids = [case.case_id for case in query.all()]
 
-        if not cases:
-            raise SystemExit(
-                "No golden cases found. Seed them first: python scripts/seed.py"
-            )
-
-        logger.info(
-            "Evaluating %d cases against provider=%s as model_version=%s",
-            len(cases), args.provider, model_version,
+    if not case_ids:
+        raise SystemExit(
+            "No golden cases found. Seed them first: python scripts/seed.py"
         )
 
-        for index, case in enumerate(cases, start=1):
-            if args.delay and index > 1:
-                time.sleep(args.delay)
-            try:
+    logger.info(
+        "Evaluating %d cases against provider=%s as model_version=%s",
+        len(case_ids), args.provider, model_version,
+    )
+
+    # A session per case, rather than one held open for the whole run.
+    # The run spends most of its time sleeping between provider calls, and
+    # a hosted database (Neon's free tier especially) drops connections
+    # that sit idle -- which surfaced as
+    # "SSL connection has been closed unexpectedly" partway through a run
+    # and silently lost every remaining case. Taking a fresh connection
+    # per case lets pool_pre_ping validate it before use.
+    for index, case_id in enumerate(case_ids, start=1):
+        if args.delay and index > 1:
+            time.sleep(args.delay)
+        try:
+            with get_db() as db:
+                case = db.query(GoldenCase).filter(GoldenCase.case_id == case_id).one()
                 result = run_eval(
                     db=db,
                     case=case,
                     model_version=model_version,
                     provider=args.provider,
                 )
-                # Commit per case so a later failure can't discard the
-                # results we already have -- a partial time series is far
-                # more useful than an empty one.
-                db.commit()
-                succeeded += 1
-                if result.composite_score is not None:
-                    scores.append(float(result.composite_score))
-                logger.info(
-                    "[%d/%d] case=%s composite=%s",
-                    index, len(cases), case.case_id,
-                    f"{result.composite_score:.4f}" if result.composite_score is not None else "n/a",
-                )
-            except Exception as exc:
-                db.rollback()
-                failed += 1
-                last_error = str(exc)[:500]
-                logger.error("[%d/%d] case=%s failed: %s", index, len(cases), case.case_id, exc)
+                composite = result.composite_score
+                # get_db() commits on exit, so each case is durable before
+                # the next one starts -- a partial time series is far more
+                # useful than an empty one.
+            succeeded += 1
+            if composite is not None:
+                scores.append(float(composite))
+            logger.info(
+                "[%d/%d] case=%s composite=%s",
+                index, len(case_ids), case_id,
+                f"{composite:.4f}" if composite is not None else "n/a",
+            )
+        except Exception as exc:
+            failed += 1
+            last_error = str(exc)[:500]
+            logger.error("[%d/%d] case=%s failed: %s", index, len(case_ids), case_id, exc)
 
-        # Always record the run, especially when everything failed --
-        # that's precisely the case that otherwise leaves no trace at all
-        # and looks identical to "the job never ran".
+    # Always record the run, especially when everything failed -- that's
+    # precisely the case that otherwise leaves no trace at all and looks
+    # identical to "the job never ran".
+    with get_db() as db:
         db.add(
             JobRun(
                 job="monitor",
@@ -137,7 +148,6 @@ def main() -> None:
                 last_error=last_error,
             )
         )
-        db.commit()
 
     total = succeeded + failed
     summary = {
