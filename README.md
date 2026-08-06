@@ -12,7 +12,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://postgresql.org)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
-[![Gemini](https://img.shields.io/badge/LLM-Gemini%202.0%20Flash-4285F4?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev)
+[![Gemini](https://img.shields.io/badge/LLM-Gemini%20Flash%20Lite-4285F4?style=flat-square&logo=google&logoColor=white)](https://ai.google.dev)
 
 ---
 
@@ -31,6 +31,8 @@
 - [Research Base](#-research-base)
 - [Quick-Start Checklist](#-quick-start-checklist)
 - [Getting Started](#-getting-started)
+- [Keeping Monitoring Alive](#-keeping-monitoring-alive)
+- [Running Tests](#-running-tests)
 
 ---
 
@@ -82,10 +84,11 @@ DriftScope is a **five-module system**, each independently useful, combined into
 │  └──────────────┘    │  · Ollama (local)│    │  · PR Comments    │ │
 │                      └──────────────────┘    │  · Merge Blocking │ │
 │                                              └───────────────────┘ │
-│  ┌──────────────┐    ┌──────────────────┐                          │
-│  │  Prometheus  │───▶│    Grafana       │                          │
-│  │  /metrics    │    │    Dashboard     │                          │
-│  └──────────────┘    └──────────────────┘                          │
+│  ┌──────────────┐    ┌──────────────────┐    ┌───────────────────┐ │
+│  │  Prometheus  │───▶│    Grafana       │    │  Email Notifier   │ │
+│  │  /metrics    │    │    Dashboard     │    │  · Drift alerts   │ │
+│  └──────────────┘    └──────────────────┘    │  · Run summaries  │ │
+│                                              └───────────────────┘ │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -122,9 +125,26 @@ CREATE TABLE centroid_history (
     provider        VARCHAR(50),
     centroid        FLOAT[],      -- embedding centroid vector
     drift_score     FLOAT,
+    case_count      INTEGER,      -- how many prompts built this centroid
     recorded_at     TIMESTAMPTZ DEFAULT now()
 );
+
+-- Outcomes of scheduled runs, so a job that failed every case is
+-- distinguishable from a job that never ran
+CREATE TABLE job_runs (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job             VARCHAR(50),  -- "monitor", "canary"
+    provider        VARCHAR(50),
+    model_version   VARCHAR(100),
+    cases_total     INTEGER,
+    cases_succeeded INTEGER,
+    cases_failed    INTEGER,
+    last_error      TEXT,
+    finished_at     TIMESTAMPTZ DEFAULT now()
+);
 ```
+
+`centroid_history.case_count` exists because a centroid built from 20 prompts isn't comparable to one built from 5 — the baseline query filters to snapshots of the same size, so drift measures the model changing rather than the prompt set changing.
 
 ---
 
@@ -140,22 +160,26 @@ CREATE TABLE centroid_history (
 | CI/CD | GitHub Actions |
 | Observability | Prometheus + Grafana |
 | Infrastructure | Docker Compose |
-| LLM (Judge + Canary) | **Google Gemini 2.5 Flash** (free tier), Ollama (local fallback) |
+| LLM (Judge + Canary) | **Google Gemini Flash Lite** (free tier), Ollama (local fallback) |
 
 ---
 
 ## 🤖 Free LLM Choice
 
-**Google Gemini 2.5 Flash** is used as the LLM for both the judge and the canary runs. Here’s why it’s the best free option for this project:
+**Google Gemini Flash Lite** (`gemini-3.5-flash-lite`, set by `GEMINI_MODEL`) is used as the LLM for both the judge and the canary runs. Here’s why it’s the best free option for this project:
 
-| Criterion | Gemini 2.5 Flash |
+| Criterion | Gemini Flash Lite |
 |-----------|-----------------|
-| **Cost** | Free tier via [Google AI Studio](https://aistudio.google.com) — 15 RPM, 1M tokens/day |
+| **Cost** | Free tier via [Google AI Studio](https://aistudio.google.com) — 15 RPM, 500 requests/day |
 | **Structured output** | Native JSON mode — critical for the LLM-as-judge `{pass, reason}` schema |
 | **Speed** | Sub-second latency — fast enough for nightly canary runs |
 | **Context window** | 1M tokens — handles long responses without truncation |
 | **Python SDK** | `google-generativeai` — simple, well-documented |
-| **Quality** | Matches or beats GPT-3.5 on evaluation tasks at zero cost |
+| **Quality** | Judges accurately, correctly failing responses that violate an explicit safety rule |
+
+The **Lite** tier is a deliberate choice over standard Flash. On the free tier the standard Flash models allow only 20 requests/day, which caps a run at 10 cases and can't sustain continuous monitoring. Flash Lite's 500/day is 25× the budget at the same judging quality.
+
+The model is also pinned to a concrete ID rather than a `-latest` alias. DriftScope exists to detect when a provider silently changes the model behind a fixed name; an alias that intentionally moves would manufacture drift signals and make the canary meaningless.
 
 ```bash
 pip install google-generativeai
@@ -165,7 +189,7 @@ pip install google-generativeai
 import google.generativeai as genai
 
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-model = genai.GenerativeModel("gemini-2.5-flash")
+model = genai.GenerativeModel("gemini-3.5-flash-lite")
 
 response = model.generate_content(
     prompt,
@@ -251,7 +275,7 @@ def get_client(provider: str) -> LLMClient:
     ...
 ```
 
-**Gemini 2.5 Flash** is wired as the primary provider, with **Ollama** (local) as the fallback. The factory pattern means providers can be swapped without touching any business logic.
+**Gemini Flash Lite** is wired as the primary provider, with **Ollama** (local) as the fallback. The factory pattern means providers can be swapped without touching any business logic.
 
 #### 1.5 FastAPI Endpoints
 
@@ -276,7 +300,7 @@ GET  /cases/{case_id}/results → history of eval results for a case
 
 **Goal:** Add the LLM-as-judge, cost guard, composite scoring, and aggregated reporting. By end of this phase an 80%+ covered integration test suite with mocked LLM responses should be complete.
 
-#### 2.1 LLM-as-Judge (Gemini 2.5 Flash)
+#### 2.1 LLM-as-Judge (Gemini Flash Lite)
 
 A structured rubric prompt is implemented that returns `{pass: bool, reason: str}`:
 
@@ -284,7 +308,7 @@ A structured rubric prompt is implemented that returns `{pass: bool, reason: str
 import google.generativeai as genai
 import json
 
-model = genai.GenerativeModel("gemini-2.5-flash")
+model = genai.GenerativeModel("gemini-3.5-flash-lite")
 
 def judge_response(response: str, rule: str) -> dict:
     prompt = f"""You are a strict evaluator. Answer in JSON only.
@@ -673,82 +697,63 @@ CREATE TABLE centroid_history (
 
 #### 4.3 GitHub Actions Cron Schedule
 
-A `.github/workflows/canary.yml` workflow is created:
+Two workflows run DriftScope on a schedule. Both also accept `workflow_dispatch` for manual triggering.
 
-```yaml
-name: DriftScope Nightly Canary
+| Workflow | File | Cron (UTC) | IST | Purpose |
+|---|---|---|---|---|
+| Nightly Canary | `canary.yml` | `53 4 * * *` | 10:23 | Centroid snapshot + drift check |
+| Scheduled Eval | `monitor.yml` | `43 5,17 * * *` | 11:13 / 23:13 | Golden suite, twice daily |
 
-on:
-  schedule:
-    - cron: "0 2 * * *"   # 2 AM UTC every night
-  workflow_dispatch:        # also allow manual trigger
+**Schedules are UTC.** GitHub Actions cron has no timezone setting, while the Actions tab renders start times in your local timezone — the two never read the same.
 
-jobs:
-  canary:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run canary
-        run: python scripts/run_canary.py --providers gemini ollama
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+**Start times are approximate.** GitHub queues `schedule` events behind on-demand jobs and commonly starts them one to three hours late. Both crons sit mid-hour and away from `:00` and midnight UTC, the most contended slots, which reduces the lag but can't remove it. Nothing downstream depends on the exact minute — `/metrics` averages over a rolling 24h window, so a late run still lands inside it. Where exact timing matters, drive the workflow from an external scheduler via `workflow_dispatch`.
+
+The canary runs against `gemini` only. Ollama needs a local `ollama serve` and a pulled model, so it can't run on a hosted runner — add it explicitly (`--providers gemini ollama`) when running locally.
+
+#### 4.4 Email Integration
+
+DriftScope sends two kinds of email, both through `app/core/notify.py` using Python's built-in `smtplib` — no extra dependencies.
+
+| Kind | Sent by | When |
+|---|---|---|
+| **Drift alert** | `app/core/canary.py` | Canary centroid drift crosses the threshold |
+| **Run summary** | `scripts/notify_run.py` | End of every scheduled run, pass or fail |
+
+Run summaries are what tell you the monitoring is alive. GitHub only emails on workflow *failure*, and the drift alert only fires above the threshold, so neither one distinguishes a healthy system from a job that stopped running. Each summary carries the run's status, a link back to the Actions run, and the case counts and scores the job recorded:
+
+```
+DriftScope scheduled job: monitor
+========================================
+Status     : OK
+Finished   : 2026-08-06T10:31:44+00:00
+Run        : https://github.com/Halcyonic-01/DriftScope/actions/runs/…
+
+Result
+----------------------------------------
+  cases_failed          : 0
+  cases_succeeded       : 20
+  mean_composite_score  : 0.7306
+  provider              : gemini
 ```
 
-#### 4.4 Email Alert Integration
+Both workflows invoke the notifier with `if: always()`, so failed runs are reported too. The step never fails a build: if SMTP is unconfigured it logs a warning and skips, and delivery errors are caught and logged. Monitoring results matter more than the notification about them.
 
-Python's built-in `smtplib` is used — no extra dependencies needed:
+**Configuration** — three repository secrets under *Settings → Secrets and variables → Actions*:
 
-```python
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+| Secret | Value |
+|---|---|
+| `ALERT_EMAIL` | where alerts and summaries go |
+| `SMTP_USER` | the sending account |
+| `SMTP_PASSWORD` | an **app password**, not your login password ([Gmail](https://support.google.com/accounts/answer/185833)) |
 
-async def send_email_alert(
-    provider: str,
-    drift_score: float,
-    to_email: str,
-    smtp_host: str,
-    smtp_port: int,
-    smtp_user: str,
-    smtp_password: str
-):
-    subject = f"🚨 DriftScope Canary Alert — {provider} drift detected"
-
-    body = f"""
-    DriftScope Canary Alert
-    ========================
-    Provider      : {provider}
-    Centroid Drift: {drift_score:.4f}  (threshold: 0.05)
-    Detected at   : {datetime.utcnow().isoformat()}Z
-
-    A silent model update may have occurred.
-    Review your eval results at http://localhost:3000 (Grafana).
-    """
-
-    msg = MIMEMultipart()
-    msg["From"]    = smtp_user
-    msg["To"]      = to_email
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
-
-    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-        server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_user, to_email, msg.as_string())
-```
-
-Configure via environment variables — works with Gmail, Outlook, or any SMTP provider.
+`SMTP_HOST` and `SMTP_PORT` default to `smtp.gmail.com:465`. Locally, the same values come from `.env`. Works with Gmail, Outlook, or any SMTP provider.
 
 #### 4.5 Multi-Provider Comparison Dashboard
 
 A Grafana panel is added showing side-by-side quality scores across providers:
 
 ```
-driftscope_quality_score{model_version="gemini-2.5-flash"}
+driftscope_quality_score{model_version="gemini-3.5-flash-lite"}
 driftscope_quality_score{model_version="llama3-local"}
 ```
 
@@ -795,7 +800,7 @@ The canary runs daily for 30 days, logging:
 - [ ] Create PostgreSQL schema: `golden_cases`, `eval_results` + Alembic migration
 - [ ] Implement `embed()` + `cosine_sim()` utilities with pytest unit tests
 - [ ] Build `POST /cases` and `POST /cases/{id}/run` FastAPI endpoints
-- [ ] Wire Gemini 2.5 Flash + Ollama behind unified `LLMClient` (factory pattern)
+- [ ] Wire Gemini Flash Lite + Ollama behind unified `LLMClient` (factory pattern)
 - [ ] Seed 20+ golden test cases for the chosen domain
 
 </details>
@@ -867,6 +872,27 @@ open http://localhost:8000/docs
 open http://localhost:3000
 ```
 
+The `api` service builds from local source, so **rebuild it after any code or migration change** — plain `docker compose up -d` reuses the existing image:
+
+```bash
+docker compose up -d --build api
+```
+
+### 📊 Where the dashboard reads from
+
+Grafana renders what Prometheus scrapes from the API's `/metrics`, which the API derives from the database. So the dashboard shows whichever database the **`api` container** is pointed at:
+
+| Variable | Read by | Typical value |
+|---|---|---|
+| `DRIFTSCOPE_DB_URL` | the `api` container (via compose) | hosted DB, e.g. the Neon instance the workflows write to |
+| `DATABASE_URL` | host-side tooling — alembic, `seed.py`, `run_monitor.py` | `localhost` |
+
+They're deliberately separate: compose auto-loads `.env`, and a `localhost` URL inside a container resolves to the container itself. Set `DRIFTSCOPE_DB_URL` to the same database your scheduled workflows write to and the dashboard reflects those runs.
+
+If panels read **No data**, check the chain end to end — `docker compose ps` (is `api` up?), then http://localhost:9090/targets (is the scrape target `up`?), then `curl localhost:8000/metrics`.
+
+> The **LLM Calls / sec** panel stays empty unless evals run through the API process itself. Scheduled runs execute on GitHub runners, which never touch this process's in-memory counters — the `driftscope_job_*` metrics cover those instead.
+
 ### 🔑 API Auth (optional)
 
 By default the API is open — no key required. To lock it down, set `API_KEY` in `.env` to any random string, then send it back on every request via the `X-API-Key` header:
@@ -883,11 +909,17 @@ curl http://localhost:8000/cases -H "X-API-Key: your-secret-here"
 
 DriftScope only shows data if evals actually run. The `/metrics` gauges average over a rolling **24-hour** window, and drift detection needs **≥10 results in 24h plus ≥30 in the prior 7 days**. If nothing runs on a schedule, the dashboard goes blank and drift detection reports `insufficient_data` forever.
 
-`.github/workflows/monitor.yml` runs the golden suite twice daily (03:00 and 15:00 UTC) to keep the window populated. Run it by hand with:
+`.github/workflows/monitor.yml` runs the golden suite twice daily — `43 5,17 * * *` **UTC** (11:13 / 23:13 IST) — to keep the window populated. Against ~21 golden cases that's ~42 results/day, clearing both thresholds with margin. Run it by hand with:
 
 ```bash
-python scripts/run_monitor.py --provider gemini --model-version gemini-2.5-flash
+python scripts/run_monitor.py --provider gemini --model-version gemini-3.5-flash-lite
 ```
+
+Cron is UTC and GitHub starts scheduled runs up to a few hours late — see [§4.3](#43-github-actions-cron-schedule).
+
+### Knowing the jobs ran
+
+Every scheduled run emails a summary (`scripts/notify_run.py`) whether it passed or failed, so a stalled job is visible from your inbox rather than only from the dashboard. See [§4.4](#44-email-integration).
 
 ### Metrics that guard the monitoring itself
 
@@ -908,7 +940,7 @@ Quality gauges alone can't tell "the model is fine" from "the eval job died". Th
 
 `alerts.yml` ships 8 Prometheus rules covering quality drift, canary centroid shift, stalled eval/canary jobs, blind drift detection, and LLM/API error rates. Firing alerts appear at **http://localhost:9090/alerts**.
 
-Prometheus only *evaluates* alerts — to route them to email or Slack you additionally need an [Alertmanager](https://prometheus.io/docs/alerting/alertmanager/) service. The canary's own SMTP alert (Phase 4) is independent and already works.
+Prometheus only *evaluates* alerts — to route them to email or Slack you additionally need an [Alertmanager](https://prometheus.io/docs/alerting/alertmanager/) service. The two SMTP paths in `app/core/notify.py` (the canary drift alert and the per-run summaries) are independent of Prometheus and already work.
 
 ---
 
