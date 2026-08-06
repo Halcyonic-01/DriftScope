@@ -70,3 +70,6 @@ prometheus-data/
 # and eval_results); these files are just local convenience logs.
 canary_log.jsonl
 eval_report.json
+# Per-run summaries the workflows hand to scripts/notify_run.py.
+canary_run.jsonl
+monitor_summary.json

@@ -1,8 +1,14 @@
 name: DriftScope Nightly Canary
 
+# TIMES ARE UTC — GitHub cron has no timezone option, and the Actions tab
+# displays start times in your local timezone, so the two never match.
+# 04:53 UTC = 10:23 IST. Scheduled runs are also best-effort and are
+# routinely queued one to three hours late; see the longer note in
+# monitor.yml. Offset from the scheduled eval so the two jobs don't
+# compete for the same provider quota.
 on:
   schedule:
-    - cron: "23 2 * * *"
+    - cron: "53 4 * * *"
   workflow_dispatch:
 
 jobs:
@@ -22,7 +28,10 @@ jobs:
       - name: Run canary
         # Ollama is not available on GitHub runners, so listing it here made
         # the job fail every night on a provider that can never work.
-        run: python scripts/run_canary.py --providers gemini
+        # A fresh per-run file rather than the repo's canary_log.jsonl,
+        # which is append-only and would put every historical record in
+        # the summary email.
+        run: python scripts/run_canary.py --providers gemini --output-jsonl canary_run.jsonl
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -31,6 +40,25 @@ jobs:
           # the sensible defaults in app/core/config.py. Config now treats
           # blank as "unset", but keep these explicit fallbacks so the
           # intent is visible here too — same pattern as docker-compose.yml.
+          SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+
+      # Confirmation that the canary actually ran. The drift alert in
+      # app/core/canary.py only fires when drift crosses the threshold —
+      # silence from it is ambiguous between "no drift" and "job dead".
+      - name: Email run summary
+        if: always()
+        run: |
+          python scripts/notify_run.py \
+            --job canary \
+            --status "${{ job.status }}" \
+            --summary-file canary_run.jsonl \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
           SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
           SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
