@@ -27,6 +27,7 @@ import os
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -48,6 +49,14 @@ def main() -> None:
         help="Label recorded on each result. Defaults to the provider name.",
     )
     parser.add_argument("--domain", default=None, help="Only run cases in this domain.")
+    parser.add_argument(
+        "--summary-file",
+        default=None,
+        help=(
+            "Also write the run summary here as JSON. scripts/notify_run.py "
+            "reads this to build the confirmation email."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=None, help="Cap how many cases to run.")
     parser.add_argument(
         "--fail-threshold",
@@ -160,6 +169,13 @@ def main() -> None:
         "mean_composite_score": round(sum(scores) / len(scores), 4) if scores else None,
     }
     print(json.dumps(summary, indent=2, sort_keys=True))
+
+    # Written before the threshold check below, so a run that fails the
+    # threshold still reports what it found instead of emailing a blank.
+    if args.summary_file:
+        Path(args.summary_file).write_text(
+            json.dumps(summary, sort_keys=True) + "\n", encoding="utf-8"
+        )
 
     if total and (failed / total) >= args.fail_threshold:
         raise SystemExit(

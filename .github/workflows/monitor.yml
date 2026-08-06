@@ -6,12 +6,23 @@ name: DriftScope Scheduled Eval
 # clears both thresholds with margin. Offset from the canary so the two
 # jobs don't compete for provider quota.
 #
-# Deliberately not on the hour: GitHub's scheduled runs are best-effort
-# and the top of the hour is the most contended slot, which was delaying
-# these runs by one to three hours.
+# TIMES ARE UTC. GitHub cron has no timezone setting and always uses UTC,
+# so these do NOT run at the clock time shown in the Actions tab (which
+# renders in your local timezone). 05:43/17:43 UTC = 11:13/23:13 IST.
+#
+# On top of that, scheduled runs are best-effort: GitHub queues them
+# behind on-demand jobs and routinely starts them one to three hours
+# late. That is why the observed start times wander. It cannot be fixed
+# from here — only reduced by avoiding contended slots, which is why
+# these sit mid-hour and away from :00 and from midnight UTC. Nothing
+# downstream depends on the exact minute: the /metrics gauges use a
+# rolling 24h window, so a late run still lands inside it.
+#
+# If exact timing ever matters, trigger the workflow from an external
+# scheduler via workflow_dispatch instead of relying on `schedule`.
 on:
   schedule:
-    - cron: "17 3,15 * * *"
+    - cron: "43 5,17 * * *"
   workflow_dispatch:
     inputs:
       provider:
@@ -47,7 +58,27 @@ jobs:
         run: |
           python scripts/run_monitor.py \
             --provider "${{ inputs.provider || 'gemini' }}" \
-            --model-version "${{ inputs.model_version || 'gemini-3.5-flash-lite' }}"
+            --model-version "${{ inputs.model_version || 'gemini-3.5-flash-lite' }}" \
+            --summary-file monitor_summary.json
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+      # GitHub only emails on failure, and only for the default branch, so
+      # a healthy run never confirms itself. `always()` so a failed run is
+      # reported too — that is the case you most want in your inbox.
+      - name: Email run summary
+        if: always()
+        run: |
+          python scripts/notify_run.py \
+            --job monitor \
+            --status "${{ job.status }}" \
+            --summary-file monitor_summary.json \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}

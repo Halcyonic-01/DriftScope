@@ -5,12 +5,9 @@ Provider-change canary using embedding centroid tracking.
 from __future__ import annotations
 
 import logging
-import smtplib
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from typing import Sequence
 from uuid import UUID
 
@@ -19,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.embeddings import get_model
 from app.core.llm import get_client
+from app.core.notify import send_email, send_email_via
 from app.db.models.centroid_history import CentroidHistory
 from app.db.models.golden_case import GoldenCase
 
@@ -167,31 +165,11 @@ def send_configured_email_alert(
     threshold: float = DEFAULT_CANARY_THRESHOLD,
 ) -> bool:
     """Send an alert if SMTP settings are complete; return whether one was sent."""
-    from app.core.config import settings
-
-    if not all(
-        [
-            settings.alert_email,
-            settings.smtp_host,
-            settings.smtp_port,
-            settings.smtp_user,
-            settings.smtp_password,
-        ]
-    ):
+    subject, body = _format_alert(provider, drift_score, threshold)
+    sent = send_email(subject=subject, body=body)
+    if not sent:
         logger.warning("Canary drift detected but SMTP settings are incomplete")
-        return False
-
-    send_email_alert(
-        provider=provider,
-        drift_score=drift_score,
-        threshold=threshold,
-        to_email=settings.alert_email,
-        smtp_host=settings.smtp_host,
-        smtp_port=settings.smtp_port,
-        smtp_user=settings.smtp_user,
-        smtp_password=settings.smtp_password,
-    )
-    return True
+    return sent
 
 
 def send_email_alert(
@@ -204,6 +182,19 @@ def send_email_alert(
     smtp_user: str,
     smtp_password: str,
 ) -> None:
+    subject, body = _format_alert(provider, drift_score, threshold)
+    send_email_via(
+        subject=subject,
+        body=body,
+        to_email=to_email,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_user=smtp_user,
+        smtp_password=smtp_password,
+    )
+
+
+def _format_alert(provider: str, drift_score: float, threshold: float) -> tuple[str, str]:
     detected_at = datetime.now(timezone.utc).isoformat()
     subject = f"DriftScope Canary Alert - {provider} drift detected"
     body = (
@@ -214,16 +205,7 @@ def send_email_alert(
         f"Detected at    : {detected_at}\n\n"
         "A silent model update may have occurred. Review the DriftScope dashboard."
     )
-
-    msg = MIMEMultipart()
-    msg["From"] = smtp_user
-    msg["To"] = to_email
-    msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
-
-    with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-        server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_user, to_email, msg.as_string())
+    return subject, body
 
 
 def _load_cases(
